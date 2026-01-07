@@ -1,6 +1,6 @@
 """
 claims.py
-Extract atomic, testable claims from character backstories
+Extract atomic, testable claims from character backstories using Google Gemini API
 """
 
 import logging
@@ -8,7 +8,7 @@ import json
 import re
 from typing import List
 from dataclasses import dataclass
-from anthropic import Anthropic
+import google.generativeai as genai
 
 from config import Config, CLAIM_EXTRACTION_PROMPT
 
@@ -30,26 +30,29 @@ class Claim:
 class ClaimExtractor:
     """
     Extracts structured, testable claims from character backstories
-    using LLM-based decomposition.
+    using Google Gemini API for decomposition.
     """
     
     def __init__(self, api_key: str = None):
         """
-        Initialize claim extractor.
+        Initialize claim extractor with Google Gemini API.
         
         Args:
-            api_key: Anthropic API key (defaults to Config)
+            api_key: Google API key (defaults to Config.GOOGLE_API_KEY)
         """
-        self.api_key = api_key or Config.ANTHROPIC_API_KEY
+        self.api_key = api_key or Config.GOOGLE_API_KEY
         if not self.api_key:
-            raise ValueError("Anthropic API key required")
+            raise ValueError("GOOGLE_API_KEY environment variable required")
         
-        self.client = Anthropic(api_key=self.api_key)
-        logger.info("ClaimExtractor initialized")
+        # Configure Gemini API
+        genai.configure(api_key=self.api_key)
+        self.model = genai.GenerativeModel(Config.MODEL_NAME)
+        
+        logger.info(f"ClaimExtractor initialized with {Config.MODEL_NAME}")
     
     def extract_claims(self, backstory: str, story_id: str) -> List[Claim]:
         """
-        Extract testable claims from backstory.
+        Extract testable claims from backstory using Gemini.
         
         Args:
             backstory: Character backstory text
@@ -60,8 +63,8 @@ class ClaimExtractor:
         """
         logger.info(f"Extracting claims from backstory ({len(backstory)} chars)")
         
-        # Call LLM to extract structured claims
-        raw_claims = self._call_llm_extraction(backstory)
+        # Call Gemini to extract structured claims
+        raw_claims = self._call_gemini_extraction(backstory)
         
         # Parse and validate claims
         claims = self._parse_claims(raw_claims, story_id)
@@ -74,9 +77,9 @@ class ClaimExtractor:
         
         return claims
     
-    def _call_llm_extraction(self, backstory: str) -> dict:
+    def _call_gemini_extraction(self, backstory: str) -> dict:
         """
-        Call LLM to extract claims from backstory.
+        Call Gemini API to extract claims from backstory.
         
         Returns:
             Dict with extracted claims
@@ -84,19 +87,20 @@ class ClaimExtractor:
         prompt = CLAIM_EXTRACTION_PROMPT.format(backstory=backstory)
         
         try:
-            response = self.client.messages.create(
-                model=Config.MODEL_NAME,
-                max_tokens=Config.MAX_TOKENS_EXTRACTION,
-                temperature=Config.TEMPERATURE,
-                messages=[{"role": "user", "content": prompt}]
+            response = self.model.generate_content(
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    temperature=0.0,  # Deterministic
+                    max_output_tokens=3000,
+                )
             )
             
-            content = response.content[0].text
+            content = response.text
             
             # Extract JSON from response
             json_match = re.search(r'\{.*\}', content, re.DOTALL)
             if not json_match:
-                logger.error("No JSON found in LLM response")
+                logger.error("No JSON found in Gemini response")
                 return {"claims": []}
             
             result = json.loads(json_match.group())
@@ -105,20 +109,19 @@ class ClaimExtractor:
                 logger.error("Invalid response structure: missing 'claims' key")
                 return {"claims": []}
             
-            logger.debug(f"LLM extracted {len(result['claims'])} raw claims")
+            logger.debug(f"Gemini extracted {len(result['claims'])} raw claims")
             return result
             
         except Exception as e:
             logger.error(f"Claim extraction failed: {e}")
-            # Return empty but valid structure
             return {"claims": []}
     
     def _parse_claims(self, raw_claims: dict, story_id: str) -> List[Claim]:
         """
-        Parse raw LLM output into Claim objects.
+        Parse raw Gemini output into Claim objects.
         
         Args:
-            raw_claims: Dict from LLM response
+            raw_claims: Dict from Gemini response
             story_id: Story identifier
             
         Returns:
@@ -302,6 +305,180 @@ class ClaimValidator:
         
         logger.info(f"Validated {len(valid_claims)}/{len(claims)} claims as testable")
         return valid_claims
+class ClaimValidator:
+    """
+    Validates that extracted claims are specific and testable.
+    """
+    
+    @staticmethod
+    def is_testable(claim: Claim) -> bool:
+        """
+        Check if claim is specific enough to test against narrative.
+        
+        Args:
+            claim: Claim to validate
+            
+        Returns:
+            True if testable, False if too vague
+        """
+        text = claim.text.lower()
+        
+        # Flag overly vague claims
+        vague_phrases = [
+            "had a difficult time",
+            "went through challenges",
+            "experienced things",
+            "lived a life",
+            "was influenced by",
+        ]
+        
+        for phrase in vague_phrases:
+            if phrase in text:
+                return False
+        
+        # Must contain specific content
+        if len(text.split()) < 5:  # Too short
+            return False
+        
+        return True
+    
+    @staticmethod
+    def validate_claims(claims: List[Claim]) -> List[Claim]:
+        """
+        Filter claims to only testable ones.
+        
+        Args:
+            claims: All claims
+            
+        Returns:
+            Valid, testable claims only
+        """
+        valid_claims = []
+        
+        for claim in claims:
+            if ClaimValidator.is_testable(claim):
+                valid_claims.append(claim)
+            else:
+                logger.debug(f"Filtered vague claim: {claim.text[:50]}")
+        
+        logger.info(f"Validated {len(valid_claims)}/{len(claims)} claims as testable")
+        return valid_claims
+    
+    def _prioritize_claims(self, claims: List[Claim]) -> List[Claim]:
+        """
+        Prioritize claims by importance and category.
+        Focus on claims most likely to create constraints.
+        
+        Args:
+            claims: List of all claims
+            
+        Returns:
+            Prioritized and potentially filtered list of claims
+        """
+        # Define priority scoring
+        importance_scores = {"high": 3, "medium": 2, "low": 1}
+        
+        # Categories that create strong constraints
+        constraint_categories = {
+            "character_events": 3,
+            "skills_knowledge": 3,
+            "constraints": 3,
+            "physical_biological": 2,
+            "personality_traits": 2,
+            "beliefs_motivations": 1,
+            "relationships": 1
+        }
+        
+        # Score each claim
+        scored_claims = []
+        for claim in claims:
+            importance_score = importance_scores.get(claim.importance, 1)
+            category_score = constraint_categories.get(claim.category, 1)
+            
+            total_score = importance_score * category_score
+            scored_claims.append((total_score, claim))
+        
+        # Sort by score (descending)
+        scored_claims.sort(reverse=True, key=lambda x: x[0])
+        
+        # Take top claims (limit to reasonable number for processing)
+        max_claims = 25
+        selected = [claim for score, claim in scored_claims[:max_claims]]
+        
+        if len(claims) > max_claims:
+            logger.info(f"Prioritized to top {max_claims} claims from {len(claims)}")
+        
+        return selected
+    
+    def _log_claim_distribution(self, claims: List[Claim]):
+        """Log distribution of claims by category and importance."""
+        categories = {}
+        importances = {}
+        
+        for claim in claims:
+            categories[claim.category] = categories.get(claim.category, 0) + 1
+            importances[claim.importance] = importances.get(claim.importance, 0) + 1
+        
+
+
+class ClaimValidator:
+    """
+    Validates that extracted claims are specific and testable.
+    """
+    
+    @staticmethod
+    def is_testable(claim: Claim) -> bool:
+        """
+        Check if claim is specific enough to test against narrative.
+        
+        Args:
+            claim: Claim to validate
+            
+        Returns:
+            True if testable, False if too vague
+        """
+        text = claim.text.lower()
+        
+        # Flag overly vague claims
+        vague_phrases = [
+            "had a difficult time",
+            "went through challenges",
+            "experienced things",
+            "lived a life",
+            "was influenced by",
+        ]
+        
+        for phrase in vague_phrases:
+            if phrase in text:
+                return False
+        
+        # Must contain specific content
+        if len(text.split()) < 5:  # Too short
+            return False
+        
+        return True
+    
+    @staticmethod
+    def validate_claims(claims: List[Claim]) -> List[Claim]:
+        """
+        Filter claims to only testable ones.
+        
+        Args:
+            claims: All claims
+            
+        Returns:
+            Valid, testable claims only
+        """
+        valid_claims = []
+        
+        for claim in claims:
+            if ClaimValidator.is_testable(claim):
+                valid_claims.append(claim)
+            else:
+                logger.debug(f"Filtered vague claim: {claim.text[:50]}")
+        
+        logger.info(f"Validated {len(valid_claims)}/{len(claims)} claims as testable")
+        return valid_claims
 
 
 class ClaimRefiner:
@@ -311,8 +488,9 @@ class ClaimRefiner:
     
     def __init__(self, api_key: str = None):
         """Initialize claim refiner."""
-        self.api_key = api_key or Config.ANTHROPIC_API_KEY
-        self.client = Anthropic(api_key=self.api_key)
+        self.api_key = api_key or Config.GOOGLE_API_KEY
+        genai.configure(api_key=self.api_key)
+        self.model = genai.GenerativeModel(Config.MODEL_NAME)
     
     def refine_vague_claim(self, claim: Claim, backstory_context: str) -> Claim:
         """
@@ -339,14 +517,15 @@ Rewrite this claim to be:
 Return only the refined claim text, nothing else."""
 
         try:
-            response = self.client.messages.create(
-                model=Config.MODEL_NAME,
-                max_tokens=200,
-                temperature=0.3,
-                messages=[{"role": "user", "content": prompt}]
+            response = self.model.generate_content(
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    temperature=0.3,
+                    max_output_tokens=200,
+                )
             )
             
-            refined_text = response.content[0].text.strip()
+            refined_text = response.text.strip()
             
             # Create refined claim
             return Claim(

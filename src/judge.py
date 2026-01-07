@@ -1,18 +1,17 @@
 """
 judge.py
-Consistency checking logic for backstory claims against narrative evidence
+Consistency checking logic using Google Gemini API
 """
 
 import logging
 import json
 import re
-from typing import List, Dict, Tuple
+from typing import List, Dict
 from dataclasses import dataclass
-from anthropic import Anthropic
+import google.generativeai as genai
 
 from claims import Claim
 from chunk import Chunk
-from retrieve import EvidenceAggregator
 from config import Config, CONSISTENCY_CHECK_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -40,24 +39,24 @@ class VerificationResult:
 class ConsistencyJudge:
     """
     Judges whether backstory claims are consistent with narrative evidence.
-    Uses LLM for nuanced reasoning but applies strict decision rules.
+    Uses Google Gemini API for nuanced reasoning but applies strict decision rules.
     """
     
     def __init__(self, api_key: str = None):
         """
-        Initialize consistency judge.
+        Initialize consistency judge with Gemini API.
         
         Args:
-            api_key: Anthropic API key
+            api_key: Google API key
         """
-        self.api_key = api_key or Config.ANTHROPIC_API_KEY
+        self.api_key = api_key or Config.GOOGLE_API_KEY
         if not self.api_key:
-            raise ValueError("Anthropic API key required")
+            raise ValueError("GOOGLE_API_KEY environment variable required")
         
-        self.client = Anthropic(api_key=self.api_key)
-        self.aggregator = EvidenceAggregator()
+        genai.configure(api_key=self.api_key)
+        self.model = genai.GenerativeModel(Config.MODEL_NAME)
         
-        logger.info("ConsistencyJudge initialized")
+        logger.info(f"ConsistencyJudge initialized with {Config.MODEL_NAME}")
     
     def verify_claim(self, claim: Claim, evidence_chunks: List[Chunk]) -> VerificationResult:
         """
@@ -85,10 +84,10 @@ class ConsistencyJudge:
             )
         
         # Aggregate evidence into text
-        evidence_text = self.aggregator.aggregate_evidence(evidence_chunks)
+        evidence_text = self._aggregate_evidence(evidence_chunks)
         
-        # Call LLM for verification
-        llm_result = self._call_llm_verification(claim, evidence_text)
+        # Call Gemini for verification
+        llm_result = self._call_gemini_verification(claim, evidence_text)
         
         # Parse result
         result = self._parse_verification_result(
@@ -99,9 +98,18 @@ class ConsistencyJudge:
         
         return result
     
-    def _call_llm_verification(self, claim: Claim, evidence: str) -> dict:
+    def _aggregate_evidence(self, chunks: List[Chunk]) -> str:
+        """Aggregate chunks into evidence text."""
+        # Sort chunks by temporal order
+        sorted_chunks = sorted(chunks, key=lambda c: c.temporal_order)
+        
+        # Combine with separator
+        texts = [f"[Chunk {c.temporal_order}]\n{c.text}" for c in sorted_chunks]
+        return "\n\n---\n\n".join(texts)
+    
+    def _call_gemini_verification(self, claim: Claim, evidence: str) -> dict:
         """
-        Call LLM to verify claim against evidence.
+        Call Gemini to verify claim against evidence.
         
         Args:
             claim: Claim to verify
@@ -116,19 +124,20 @@ class ConsistencyJudge:
         )
         
         try:
-            response = self.client.messages.create(
-                model=Config.MODEL_NAME,
-                max_tokens=Config.MAX_TOKENS_VERIFICATION,
-                temperature=Config.TEMPERATURE,
-                messages=[{"role": "user", "content": prompt}]
+            response = self.model.generate_content(
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    temperature=0.0,  # Deterministic
+                    max_output_tokens=1500,
+                )
             )
             
-            content = response.content[0].text
+            content = response.text
             
             # Extract JSON from response
             json_match = re.search(r'\{.*\}', content, re.DOTALL)
             if not json_match:
-                logger.error("No JSON found in verification response")
+                logger.error("No JSON found in Gemini response")
                 return self._default_result()
             
             result = json.loads(json_match.group())
@@ -157,10 +166,10 @@ class ConsistencyJudge:
     def _parse_verification_result(self, llm_result: dict, claim: Claim,
                                    evidence_chunks: List[Chunk]) -> VerificationResult:
         """
-        Parse LLM result into VerificationResult object.
+        Parse Gemini result into VerificationResult object.
         
         Args:
-            llm_result: Dict from LLM
+            llm_result: Dict from Gemini
             claim: Original claim
             evidence_chunks: Evidence chunks used
             
@@ -174,8 +183,11 @@ class ConsistencyJudge:
             verdict = "CONSISTENT"
         
         # Extract confidence
-        confidence = float(llm_result.get("confidence", 0.5))
-        confidence = max(0.0, min(1.0, confidence))  # Clamp to [0, 1]
+        try:
+            confidence = float(llm_result.get("confidence", 0.5))
+            confidence = max(0.0, min(1.0, confidence))  # Clamp to [0, 1]
+        except (ValueError, TypeError):
+            confidence = 0.5
         
         # Extract reasoning
         reasoning = llm_result.get("reasoning", "No reasoning provided")
@@ -200,205 +212,88 @@ class ConsistencyJudge:
             evidence_map: Dict mapping claim_id -> evidence chunks
             
         Returns:
-            List of verification results
+            List of VerificationResult objects
         """
-        results = []
+        logger.info(f"Verifying {len(claims)} claims...")
         
-        for i, claim in enumerate(claims):
-            logger.info(f"Verifying claim {i+1}/{len(claims)}")
-            
+        results = []
+        for i, claim in enumerate(claims, 1):
             evidence_chunks = evidence_map.get(claim.claim_id, [])
             result = self.verify_claim(claim, evidence_chunks)
             results.append(result)
+            
+            if i % 5 == 0:
+                logger.info(f"  Verified {i}/{len(claims)} claims")
         
         return results
 
 
 class DecisionAggregator:
     """
-    Aggregates verification results to make final binary decision.
-    Applies strict logical rules.
+    Aggregates verification results into final decisions.
+    Applies strict deterministic logic for classification.
     """
     
-    def __init__(self, contradiction_threshold: float = None):
+    @staticmethod
+    def make_decision(results: List[VerificationResult]) -> tuple[int, str]:
         """
-        Initialize decision aggregator.
+        Make final decision based on verification results.
         
         Args:
-            contradiction_threshold: Confidence threshold for contradictions
-        """
-        self.threshold = contradiction_threshold or Config.CONTRADICTION_CONFIDENCE_THRESHOLD
-        
-    def make_decision(self, results: List[VerificationResult]) -> Tuple[int, str]:
-        """
-        Make final binary decision from verification results.
-        
-        Args:
-            results: List of verification results
+            results: List of VerificationResult objects
             
         Returns:
             Tuple of (prediction, rationale)
             prediction: 1 = consistent, 0 = inconsistent
         """
         if not results:
-            logger.warning("No verification results to aggregate")
-            return 1, "No claims to verify"
+            return 1, "No claims to verify - defaulting to consistent"
         
-        # Collect contradictions by confidence
-        high_conf_contradictions = []
-        medium_conf_contradictions = []
-        low_conf_contradictions = []
+        # Find contradictions
+        contradictions = []
         
         for result in results:
-            if result.verdict == "CONTRADICTION":
-                if result.confidence >= self.threshold:
-                    high_conf_contradictions.append(result)
-                elif result.confidence >= 0.6:
-                    medium_conf_contradictions.append(result)
-                else:
-                    low_conf_contradictions.append(result)
+            if result.is_contradiction():
+                if result.confidence >= Config.CONTRADICTION_CONFIDENCE_THRESHOLD:
+                    contradictions.append(result)
+                    break  # Any high-confidence contradiction → reject
         
-        # Apply decision rules
-        prediction, rationale = self._apply_decision_rules(
-            high_conf_contradictions,
-            medium_conf_contradictions,
-            low_conf_contradictions,
-            len(results)
-        )
+        # Decision rule: ANY high-confidence contradiction → label = 0
+        if contradictions:
+            contradiction = contradictions[0]
+            reason = f"Contradiction found: {contradiction.claim.text[:80]}... (confidence: {contradiction.confidence:.2f})"
+            return 0, reason
         
-        logger.info(f"Final decision: {prediction} - {rationale}")
-        return prediction, rationale
+        # Otherwise: label = 1 (consistent)
+        num_verified = len(results)
+        reason = f"No contradictions found ({num_verified} claims verified successfully)"
+        return 1, reason
     
-    def _apply_decision_rules(self, high_conf: List[VerificationResult],
-                             medium_conf: List[VerificationResult],
-                             low_conf: List[VerificationResult],
-                             total_claims: int) -> Tuple[int, str]:
-        """
-        Apply strict decision rules.
-        
-        RULE 1: ANY high-confidence contradiction → INCONSISTENT
-        RULE 2: Multiple (2+) medium-confidence contradictions → INCONSISTENT
-        RULE 3: Otherwise → CONSISTENT
-        """
-        
-        # RULE 1: High-confidence contradiction
-        if high_conf:
-            claim_text = high_conf[0].claim.text[:100]
-            reasoning = high_conf[0].reasoning[:150]
-            
-            rationale = f"High-confidence contradiction detected: {claim_text}. {reasoning}"
-            return 0, rationale
-        
-        # RULE 2: Multiple medium-confidence contradictions
-        if len(medium_conf) >= 2:
-            claim_texts = [r.claim.text[:50] for r in medium_conf[:2]]
-            
-            rationale = (f"Multiple contradictions detected: "
-                        f"'{claim_texts[0]}' and '{claim_texts[1]}'")
-            return 0, rationale
-        
-        # RULE 3: Default to consistent
-        consistent_count = total_claims - len(high_conf) - len(medium_conf) - len(low_conf)
-        
-        if medium_conf:
-            rationale = (f"Backstory mostly consistent ({consistent_count}/{total_claims} claims), "
-                        f"1 medium-confidence issue insufficient to reject")
-        else:
-            rationale = f"Backstory consistent with narrative ({consistent_count}/{total_claims} claims verified)"
-        
-        return 1, rationale
-    
-    def generate_detailed_report(self, results: List[VerificationResult]) -> str:
+    @staticmethod
+    def generate_detailed_report(results: List[VerificationResult]) -> str:
         """
         Generate detailed report of verification results.
         
         Args:
-            results: Verification results
+            results: List of VerificationResult objects
             
         Returns:
             Formatted report string
         """
-        lines = [
-            "=" * 60,
-            "VERIFICATION REPORT",
-            "=" * 60,
-            f"Total claims verified: {len(results)}",
-            ""
-        ]
+        report = ["DETAILED VERIFICATION REPORT", "=" * 60]
         
-        # Group by verdict
-        contradictions = [r for r in results if r.verdict == "CONTRADICTION"]
         consistent = [r for r in results if r.verdict == "CONSISTENT"]
+        contradictions = [r for r in results if r.verdict == "CONTRADICTION"]
         
-        lines.append(f"Contradictions: {len(contradictions)}")
-        lines.append(f"Consistent: {len(consistent)}")
-        lines.append("")
+        report.append(f"\nTotal claims verified: {len(results)}")
+        report.append(f"Consistent: {len(consistent)} ({100*len(consistent)/len(results):.1f}%)")
+        report.append(f"Contradictions: {len(contradictions)} ({100*len(contradictions)/len(results):.1f}%)")
         
-        # Detail contradictions
         if contradictions:
-            lines.append("CONTRADICTIONS FOUND:")
-            lines.append("-" * 60)
-            
-            for i, result in enumerate(contradictions, 1):
-                lines.append(f"{i}. Claim: {result.claim.text}")
-                lines.append(f"   Confidence: {result.confidence:.2f}")
-                lines.append(f"   Reasoning: {result.reasoning}")
-                lines.append("")
+            report.append("\nContradictions found:")
+            for r in contradictions:
+                report.append(f"  - {r.claim.text[:80]}")
+                report.append(f"    Confidence: {r.confidence:.2f}")
+                report.append(f"    Reasoning: {r.reasoning}")
         
-        lines.append("=" * 60)
-        
-        return "\n".join(lines)
-
-
-class CausalityChecker:
-    """
-    Specialized checker for causal relationships between backstory and events.
-    """
-    
-    def __init__(self, api_key: str = None):
-        """Initialize causality checker."""
-        self.api_key = api_key or Config.ANTHROPIC_API_KEY
-        self.client = Anthropic(api_key=self.api_key)
-    
-    def check_causal_compatibility(self, backstory_element: str,
-                                   future_events: str) -> Tuple[bool, str]:
-        """
-        Check if backstory makes future events causally possible.
-        
-        Args:
-            backstory_element: Element from backstory
-            future_events: Events from later in narrative
-            
-        Returns:
-            (is_compatible, explanation)
-        """
-        from config import CAUSAL_ANALYSIS_PROMPT
-        
-        prompt = CAUSAL_ANALYSIS_PROMPT.format(
-            backstory_element=backstory_element,
-            narrative_events=future_events
-        )
-        
-        try:
-            response = self.client.messages.create(
-                model=Config.MODEL_NAME,
-                max_tokens=800,
-                temperature=0.0,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            
-            content = response.content[0].text
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
-            
-            if json_match:
-                result = json.loads(json_match.group())
-                is_possible = result.get("causally_possible", True)
-                explanation = result.get("explanation", "")
-                
-                return is_possible, explanation
-            
-        except Exception as e:
-            logger.error(f"Causal check failed: {e}")
-        
-        # Default to compatible on error
-        return True, "Causal check inconclusive"
+        return "\n".join(report)

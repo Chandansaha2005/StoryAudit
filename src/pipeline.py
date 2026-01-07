@@ -10,7 +10,7 @@ from pathlib import Path
 from ingest import NarrativeLoader, BackstoryLoader, PathwayDocumentStore
 from chunk import NarrativeChunker, ChunkIndex
 from claims import ClaimExtractor, ClaimValidator
-from retrieve import EvidenceRetriever, PathwayEvidenceIndex
+from retrieve import EvidenceRetriever, EvidenceAggregator, PathwayEvidenceIndex
 from judge import ConsistencyJudge, DecisionAggregator, VerificationResult
 from config import Config
 
@@ -254,7 +254,7 @@ class PipelineFactory:
         return ConsistencyCheckPipeline(
             narratives_dir=config.NARRATIVES_DIR,
             backstories_dir=config.BACKSTORIES_DIR,
-            api_key=config.ANTHROPIC_API_KEY
+            api_key=config.GOOGLE_API_KEY
         )
     
     @staticmethod
@@ -274,7 +274,7 @@ class PipelineFactory:
         return PathwayIntegrationPipeline(
             narratives_dir=config.NARRATIVES_DIR,
             backstories_dir=config.BACKSTORIES_DIR,
-            api_key=config.ANTHROPIC_API_KEY
+            api_key=config.GOOGLE_API_KEY
         )
 
 
@@ -294,8 +294,8 @@ class PipelineValidator:
         issues = []
         
         # Check API key
-        if not Config.ANTHROPIC_API_KEY:
-            issues.append("ANTHROPIC_API_KEY not set in environment")
+        if not Config.GOOGLE_API_KEY:
+            issues.append("GOOGLE_API_KEY not set in environment")
         
         # Check data directories
         if not Config.NARRATIVES_DIR.exists():
@@ -327,7 +327,7 @@ class PipelineValidator:
             logger.info("✓ Environment validation passed")
             logger.info(f"  Narratives dir: {Config.NARRATIVES_DIR}")
             logger.info(f"  Backstories dir: {Config.BACKSTORIES_DIR}")
-            logger.info(f"  API key: {'Set' if Config.ANTHROPIC_API_KEY else 'Not set'}")
+            logger.info(f"  API key: {'Set' if Config.GOOGLE_API_KEY else 'Not set'}")
         else:
             logger.error("✗ Environment validation failed:")
             for issue in issues:

@@ -20,9 +20,9 @@ class Config:
     BACKSTORIES_DIR = DATA_DIR / "backstories"
     RESULTS_FILE = PROJECT_ROOT / "results.csv"
     
-    # API Configuration
-    ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-    MODEL_NAME = "claude-sonnet-4-20250514"
+    # API Configuration (Google Gemini - FREE TIER)
+    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+    MODEL_NAME = "gemini-1.5-flash"
     
     # Chunking Parameters
     CHUNK_SIZE = 2500  # words per chunk
@@ -214,4 +214,4 @@ def setup_logging(verbose: bool = False):
     
     # Reduce noise from third-party libraries
     logging.getLogger("pathway").setLevel(logging.WARNING)
-    logging.getLogger("anthropic").setLevel(logging.WARNING)
+    logging.getLogger("google").setLevel(logging.WARNING)
