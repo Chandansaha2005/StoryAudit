@@ -7,11 +7,11 @@ import logging
 from typing import Tuple, Dict, List
 from pathlib import Path
 
-from ingest import NarrativeLoader, BackstoryLoader, PathwayDocumentStore
-from chunk import NarrativeChunker, ChunkIndex
-from claims import ClaimExtractor, ClaimValidator
-from retrieve import EvidenceRetriever, EvidenceAggregator, PathwayEvidenceIndex
-from judge import ConsistencyJudge, DecisionAggregator, VerificationResult
+from .ingest import NarrativeLoader, BackstoryLoader, PathwayDocumentStore
+from .chunk import NarrativeChunker, ChunkIndex
+from .claims import ClaimExtractor, ClaimValidator
+from .retrieve import EvidenceRetriever, EvidenceAggregator, PathwayEvidenceIndex
+from .judge import ConsistencyJudge, DecisionAggregator, VerificationResult
 from config import Config
 
 logger = logging.getLogger(__name__)

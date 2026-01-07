@@ -7,8 +7,8 @@ import logging
 from typing import List, Tuple
 import numpy as np
 
-from chunk import Chunk, ChunkIndex
-from claims import Claim
+from .chunk import Chunk, ChunkIndex
+from .claims import Claim
 from config import Config
 
 logger = logging.getLogger(__name__)

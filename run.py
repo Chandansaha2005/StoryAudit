@@ -8,9 +8,13 @@ import logging
 import sys
 from pathlib import Path
 import pandas as pd
+from dotenv import load_dotenv
+
+# Load .env file at startup
+load_dotenv()
 
 from config import Config, setup_logging
-from pipeline import PipelineFactory, PipelineValidator
+from src.pipeline import PipelineFactory, PipelineValidator
 
 logger = logging.getLogger(__name__)
 

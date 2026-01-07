@@ -46,9 +46,24 @@ class ClaimExtractor:
         
         # Configure Gemini API
         genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel(Config.MODEL_NAME)
         
-        logger.info(f"ClaimExtractor initialized with {Config.MODEL_NAME}")
+        # Try to initialize model, fallback to available models if needed
+        try:
+            self.model = genai.GenerativeModel(Config.MODEL_NAME)
+        except Exception as e:
+            logger.warning(f"Failed to load {Config.MODEL_NAME}: {e}. Trying fallback models...")
+            # Fallback models in order of preference
+            for model_name in ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"]:
+                try:
+                    self.model = genai.GenerativeModel(model_name)
+                    logger.info(f"Successfully loaded fallback model: {model_name}")
+                    break
+                except:
+                    continue
+            else:
+                raise ValueError("Could not load any Gemini model")
+        
+        logger.info(f"ClaimExtractor initialized with model")
     
     def extract_claims(self, backstory: str, story_id: str) -> List[Claim]:
         """
@@ -86,35 +101,58 @@ class ClaimExtractor:
         """
         prompt = CLAIM_EXTRACTION_PROMPT.format(backstory=backstory)
         
-        try:
-            response = self.model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.0,  # Deterministic
-                    max_output_tokens=3000,
+        # List of models to try in order
+        models_to_try = ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro"]
+        
+        for model_name in models_to_try:
+            try:
+                if not hasattr(self, '_tried_models'):
+                    self._tried_models = set()
+                
+                if model_name not in self._tried_models:
+                    self.model = genai.GenerativeModel(model_name)
+                    self._tried_models.add(model_name)
+                    logger.info(f"Using model: {model_name}")
+                
+                response = self.model.generate_content(
+                    prompt,
+                    generation_config=genai.types.GenerationConfig(
+                        temperature=0.0,  # Deterministic
+                        max_output_tokens=3000,
+                    )
                 )
-            )
-            
-            content = response.text
-            
-            # Extract JSON from response
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
-            if not json_match:
-                logger.error("No JSON found in Gemini response")
-                return {"claims": []}
-            
-            result = json.loads(json_match.group())
-            
-            if "claims" not in result:
-                logger.error("Invalid response structure: missing 'claims' key")
-                return {"claims": []}
-            
-            logger.debug(f"Gemini extracted {len(result['claims'])} raw claims")
-            return result
-            
-        except Exception as e:
-            logger.error(f"Claim extraction failed: {e}")
-            return {"claims": []}
+                
+                content = response.text
+                
+                # Extract JSON from response
+                json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                if not json_match:
+                    logger.error("No JSON found in Gemini response")
+                    return {"claims": []}
+                
+                result = json.loads(json_match.group())
+                
+                if "claims" not in result:
+                    logger.error("Invalid response structure: missing 'claims' key")
+                    return {"claims": []}
+                
+                logger.debug(f"Gemini extracted {len(result['claims'])} raw claims")
+                return result
+                
+            except Exception as e:
+                error_str = str(e)
+                if "404" in error_str or "not found" in error_str.lower():
+                    logger.debug(f"Model {model_name} not available, trying next...")
+                    continue
+                elif "429" in error_str or "quota" in error_str.lower():
+                    logger.error(f"Quota exceeded for {model_name}: {e}")
+                    return {"claims": []}
+                else:
+                    logger.error(f"Error with {model_name}: {e}")
+                    continue
+        
+        logger.error("No models available for claim extraction")
+        return {"claims": []}
     
     def _parse_claims(self, raw_claims: dict, story_id: str) -> List[Claim]:
         """

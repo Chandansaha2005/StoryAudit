@@ -44,7 +44,7 @@ class DocumentIngestion:
             logger.error(f"Failed to load {file_path}: {e}")
             raise
     
-    def create_pathway_table(self, documents: dict[str, str]) -> pw.Table:
+    def create_pathway_table(self, documents: dict[str, str]):
         """
         Create a Pathway table from documents for stream processing.
         

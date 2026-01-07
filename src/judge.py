@@ -10,8 +10,8 @@ from typing import List, Dict
 from dataclasses import dataclass
 import google.generativeai as genai
 
-from claims import Claim
-from chunk import Chunk
+from .claims import Claim
+from .chunk import Chunk
 from config import Config, CONSISTENCY_CHECK_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -54,9 +54,24 @@ class ConsistencyJudge:
             raise ValueError("GOOGLE_API_KEY environment variable required")
         
         genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel(Config.MODEL_NAME)
         
-        logger.info(f"ConsistencyJudge initialized with {Config.MODEL_NAME}")
+        # Try to initialize model, fallback to available models if needed
+        try:
+            self.model = genai.GenerativeModel(Config.MODEL_NAME)
+        except Exception as e:
+            logger.warning(f"Failed to load {Config.MODEL_NAME}: {e}. Trying fallback models...")
+            # Fallback models in order of preference
+            for model_name in ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"]:
+                try:
+                    self.model = genai.GenerativeModel(model_name)
+                    logger.info(f"Successfully loaded fallback model: {model_name}")
+                    break
+                except:
+                    continue
+            else:
+                raise ValueError("Could not load any Gemini model")
+        
+        logger.info(f"ConsistencyJudge initialized with model")
     
     def verify_claim(self, claim: Claim, evidence_chunks: List[Chunk]) -> VerificationResult:
         """
@@ -123,36 +138,59 @@ class ConsistencyJudge:
             evidence=evidence
         )
         
-        try:
-            response = self.model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.0,  # Deterministic
-                    max_output_tokens=1500,
+        # List of models to try in order
+        models_to_try = ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro"]
+        
+        for model_name in models_to_try:
+            try:
+                if not hasattr(self, '_tried_models'):
+                    self._tried_models = set()
+                
+                if model_name not in self._tried_models:
+                    self.model = genai.GenerativeModel(model_name)
+                    self._tried_models.add(model_name)
+                    logger.debug(f"Using model: {model_name} for verification")
+                
+                response = self.model.generate_content(
+                    prompt,
+                    generation_config=genai.types.GenerationConfig(
+                        temperature=0.0,  # Deterministic
+                        max_output_tokens=1500,
+                    )
                 )
-            )
-            
-            content = response.text
-            
-            # Extract JSON from response
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
-            if not json_match:
-                logger.error("No JSON found in Gemini response")
-                return self._default_result()
-            
-            result = json.loads(json_match.group())
-            
-            # Validate structure
-            required_fields = ["verdict", "confidence", "reasoning"]
-            if not all(field in result for field in required_fields):
-                logger.error("Invalid verification result structure")
-                return self._default_result()
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"Verification failed: {e}")
-            return self._default_result()
+                
+                content = response.text
+                
+                # Extract JSON from response
+                json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                if not json_match:
+                    logger.error("No JSON found in Gemini response")
+                    return self._default_result()
+                
+                result = json.loads(json_match.group())
+                
+                # Validate structure
+                required_fields = ["verdict", "confidence", "reasoning"]
+                if not all(field in result for field in required_fields):
+                    logger.error("Invalid verification result structure")
+                    return self._default_result()
+                
+                return result
+                
+            except Exception as e:
+                error_str = str(e)
+                if "404" in error_str or "not found" in error_str.lower():
+                    logger.debug(f"Model {model_name} not available, trying next...")
+                    continue
+                elif "429" in error_str or "quota" in error_str.lower():
+                    logger.error(f"Quota exceeded for {model_name}: {e}")
+                    return self._default_result()
+                else:
+                    logger.debug(f"Error with {model_name}, trying next...")
+                    continue
+        
+        logger.error("No models available for verification")
+        return self._default_result()
     
     def _default_result(self) -> dict:
         """Return default result on error."""
