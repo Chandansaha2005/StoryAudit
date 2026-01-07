@@ -358,7 +358,6 @@ If you use this system, please cite:
 
 ```
 KDSH 2026 Track A: Backstory Consistency Checker
-[Your Team Name]
 Kharagpur Data Science Hackathon 2026
 ```
 
