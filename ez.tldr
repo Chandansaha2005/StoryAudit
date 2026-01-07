@@ -48,9 +48,9 @@
 			"typeName": "page"
 		},
 		{
-			"x": -135.11480444893448,
-			"y": 700.6020583975982,
-			"z": 0.5462138863315272,
+			"x": -302.4290988515061,
+			"y": 559.627773159273,
+			"z": 0.5962915280105291,
 			"meta": {},
 			"id": "camera:page:page",
 			"typeName": "camera"
@@ -66,15 +66,17 @@
 		{
 			"followingUserId": null,
 			"opacityForNextShape": 1,
-			"stylesForNextShape": {},
+			"stylesForNextShape": {
+				"tldraw:font": "draw"
+			},
 			"brush": null,
 			"scribbles": [],
 			"cursor": {
-				"type": "move",
+				"type": "default",
 				"rotation": 0
 			},
 			"isFocusMode": false,
-			"exportBackground": true,
+			"exportBackground": false,
 			"isDebugMode": false,
 			"isToolLocked": false,
 			"screenBounds": {
@@ -109,12 +111,12 @@
 			"typeName": "instance"
 		},
 		{
-			"editingShapeId": null,
+			"editingShapeId": "shape:UHjOqzUkSQj8CxchYDHRk",
 			"croppingShapeId": null,
 			"selectedShapeIds": [
-				"shape:_oFxTnO6aQBTBEYUw1tI4"
+				"shape:UHjOqzUkSQj8CxchYDHRk"
 			],
-			"hoveredShapeId": null,
+			"hoveredShapeId": "shape:UHjOqzUkSQj8CxchYDHRk",
 			"erasingShapeIds": [],
 			"hintingShapeIds": [],
 			"focusedGroupId": null,
@@ -135,7 +137,7 @@
 			"props": {
 				"color": "black",
 				"size": "m",
-				"w": 726.5,
+				"w": 718.265625,
 				"font": "draw",
 				"textAlign": "start",
 				"autoSize": true,
@@ -154,7 +156,7 @@
 							"content": [
 								{
 									"type": "text",
-									"text": "            BACKSTORY CONSISTENCY CHECKER "
+									"text": "                BACKSTORY CONSISTENCY CHECKER "
 								}
 							]
 						},
@@ -166,7 +168,7 @@
 							"content": [
 								{
 									"type": "text",
-									"text": "\t\t\t                | "
+									"text": "\t\t\t                  | "
 								}
 							]
 						},
@@ -178,7 +180,7 @@
 							"content": [
 								{
 									"type": "text",
-									"text": "        ┌──────────────┼───────────────┐ "
+									"text": "        ┌───────────────┼───────────────┐ "
 								}
 							]
 						},
@@ -190,7 +192,7 @@
 							"content": [
 								{
 									"type": "text",
-									"text": "\t▼                             ▼                               ▼ "
+									"text": "\t▼                               ▼                               ▼ "
 								}
 							]
 						},
@@ -202,7 +204,7 @@
 							"content": [
 								{
 									"type": "text",
-									"text": " INGESTION              CHUNKING                   CLAIMS "
+									"text": " INGESTION               CHUNKING                   CLAIMS "
 								}
 							]
 						},
@@ -214,7 +216,7 @@
 							"content": [
 								{
 									"type": "text",
-									"text": "(Pathway-based)   (Temporal-aware)       (LLM extraction) "
+									"text": "(Pathway-based)   (Temporal-aware)      (LLM extraction) "
 								}
 							]
 						},
@@ -328,7 +330,7 @@
 							"content": [
 								{
 									"type": "text",
-									"text": "                             | "
+									"text": "\t                         | "
 								}
 							]
 						},
@@ -340,7 +342,7 @@
 							"content": [
 								{
 									"type": "text",
-									"text": "                             ▼ "
+									"text": "                                ▼ "
 								}
 							]
 						},
@@ -376,7 +378,7 @@
 							"content": [
 								{
 									"type": "text",
-									"text": "                             | "
+									"text": "                                 | "
 								}
 							]
 						},
@@ -388,7 +390,7 @@
 							"content": [
 								{
 									"type": "text",
-									"text": "                             ▼ "
+									"text": "                                ▼ "
 								}
 							]
 						},
@@ -400,7 +402,7 @@
 							"content": [
 								{
 									"type": "text",
-									"text": "                        DECISION "
+									"text": "                         DECISION "
 								}
 							]
 						},
@@ -424,7 +426,7 @@
 							"content": [
 								{
 									"type": "text",
-									"text": "                             | "
+									"text": "                                 | "
 								}
 							]
 						},
@@ -436,7 +438,7 @@
 							"content": [
 								{
 									"type": "text",
-									"text": "                             ▼ "
+									"text": "                                ▼ "
 								}
 							]
 						},
