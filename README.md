@@ -18,7 +18,7 @@ We treat this as a **constraint satisfaction problem** over temporal narratives 
 
 ## System Architecture
 
-<img src="assets/projectflow.png" width="500" alt="Description of image"/>
+<img src="assets/projectflow.png" width="600" alt="Description of image"/>
 
 ## Installation
 
