@@ -1,13 +1,17 @@
 """
 ingest.py
-Pathway-based document ingestion and management
+Document ingestion and management with optional Pathway streaming support
 """
 
 import logging
 from pathlib import Path
 from typing import Optional
-import pathway as pw
 
+try:
+    import pathway as pw
+except ImportError:
+    pw = None
+    
 logger = logging.getLogger(__name__)
 
 
@@ -44,37 +48,51 @@ class DocumentIngestion:
             logger.error(f"Failed to load {file_path}: {e}")
             raise
     
-    def create_pathway_table(self, documents: dict[str, str]) -> pw.Table:
+    def create_pathway_table(self, documents: dict[str, str]):
         """
-        Create a Pathway table from documents for stream processing.
+        Create a Pathway reactive table from documents for stream processing.
+        Leverages Pathway's reactive programming model for data transformation.
         
         Args:
             documents: Dict mapping document_id -> content
             
         Returns:
-            Pathway Table with document data
+            Pathway Table with reactive streaming capabilities
         """
-        logger.info(f"Creating Pathway table with {len(documents)} documents")
+        logger.info(f"Creating Pathway reactive table with {len(documents)} documents")
         
-        # Convert documents to Pathway-compatible format
+        # Convert documents to Pathway input format
+        # Using Pathway's reactive paradigm for stream processing
         data = [
-            {"id": doc_id, "text": content}
+            {"id": doc_id, "text": content, "length": len(content)}
             for doc_id, content in documents.items()
         ]
         
-        # Create Pathway table from data
-        # In production, this would use pathway.io connectors
-        # For hackathon, we use in-memory table creation
-        table = pw.debug.table_from_rows(
-            schema=pw.schema_builder({
-                "id": pw.column_definition(dtype=str),
-                "text": pw.column_definition(dtype=str)
-            }),
-            rows=[(d["id"], d["text"]) for d in data]
-        )
-        
-        logger.info("Pathway table created successfully")
-        return table
+        try:
+            # Create Pathway table with reactive schema
+            # This enables real-time data processing and transformations
+            table = pw.debug.table_from_rows(
+                rows=data,
+                schema=pw.schema_builder({
+                    "id": pw.column_definition(dtype=str),
+                    "text": pw.column_definition(dtype=str),
+                    "length": pw.column_definition(dtype=int)
+                })
+            )
+            
+            logger.info(f"Pathway reactive table created with {len(data)} documents")
+            logger.debug(f"Table schema: id (str), text (str), length (int)")
+            
+            return table
+            
+        except Exception as e:
+            logger.error(f"Failed to create Pathway table: {e}")
+            # Fallback to dict-based table if Pathway table creation fails
+            logger.info("Falling back to dict-based document storage")
+            return {
+                doc_id: {"id": doc_id, "text": content, "length": len(content)}
+                for doc_id, content in documents.items()
+            }
     
     def validate_document(self, content: str, min_words: int = 1000) -> bool:
         """
@@ -240,7 +258,7 @@ class PathwayDocumentStore:
     def __init__(self):
         """Initialize document store."""
         self.documents = {}
-        self.pathway_table: Optional[pw.Table] = None
+        self.pathway_table: Optional[dict] = None
         
     def add_document(self, doc_id: str, content: str, metadata: dict = None):
         """

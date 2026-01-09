@@ -1,15 +1,18 @@
 """
 retrieve.py
-Evidence retrieval system using Pathway for efficient chunk search
+Evidence retrieval system with semantic similarity and vector search.
+Uses embeddings for semantic matching and Pathway for efficient indexing.
 """
 
 import logging
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Optional
 import numpy as np
 
 from chunk import Chunk, ChunkIndex
 from claims import Claim
 from config import Config
+from embeddings import VectorStore, EmbeddingGenerator, SemanticSimilarityScorer
+from evidence_tracker import RetrievalTracker
 
 logger = logging.getLogger(__name__)
 
@@ -17,12 +20,12 @@ logger = logging.getLogger(__name__)
 class EvidenceRetriever:
     """
     Retrieves relevant narrative evidence for each backstory claim.
-    Uses Pathway-integrated indexing for efficient search.
+    Combines semantic similarity search with Pathway-integrated indexing.
     """
     
     def __init__(self, chunk_index: ChunkIndex):
         """
-        Initialize evidence retriever.
+        Initialize evidence retriever with semantic search.
         
         Args:
             chunk_index: Index of narrative chunks
@@ -30,15 +33,43 @@ class EvidenceRetriever:
         self.chunk_index = chunk_index
         self.chunks = chunk_index.get_chunks_in_order()
         
-        logger.info(f"EvidenceRetriever initialized with {len(self.chunks)} chunks")
+        # Initialize semantic search components
+        self.embedding_gen = EmbeddingGenerator()
+        self.vector_store = VectorStore(self.embedding_gen)
+        self.similarity_scorer = SemanticSimilarityScorer(self.embedding_gen)
+        self.retrieval_tracker = RetrievalTracker()
+        
+        # Build vector store from chunks
+        self._build_vector_store()
+        
+        logger.info(f"EvidenceRetriever initialized with {len(self.chunks)} chunks and semantic search")
+    
+    def _build_vector_store(self) -> None:
+        """Build vector store from chunks."""
+        documents = [
+            {
+                'id': f"chunk_{i}",
+                'text': chunk.text,
+                'metadata': {
+                    'chunk_index': i,
+                    'temporal_order': chunk.temporal_order,
+                    'word_count': len(chunk.text.split())
+                }
+            }
+            for i, chunk in enumerate(self.chunks)
+        ]
+        
+        added = self.vector_store.add_documents_batch(documents)
+        logger.debug(f"Added {added} chunks to vector store")
     
     def retrieve_evidence(self, claim: Claim, top_k: int = None) -> List[Chunk]:
         """
-        Retrieve narrative chunks most relevant to a claim.
+        Retrieve narrative chunks using semantic similarity.
+        Combines keyword-based and semantic similarity scoring.
         
         Args:
             claim: Claim to find evidence for
-            top_k: Number of chunks to retrieve (default: Config.TOP_K_CHUNKS)
+            top_k: Number of chunks to retrieve
             
         Returns:
             List of most relevant chunks in temporal order
@@ -47,19 +78,42 @@ class EvidenceRetriever:
         
         logger.debug(f"Retrieving evidence for: {claim.text[:50]}...")
         
-        # Score all chunks for relevance
-        scored_chunks = self._score_chunks(claim)
+        # Method 1: Semantic similarity search using embeddings
+        semantic_results = self.vector_store.search(claim.text, top_k=top_k * 2, threshold=0.2)
         
-        # Take top-k by score
-        top_chunks = scored_chunks[:top_k]
+        # Method 2: Traditional keyword-based scoring
+        keyword_scored = self._score_chunks(claim)
         
-        # Re-sort by temporal order for consistent reasoning
-        top_chunks.sort(key=lambda x: x[1].temporal_order)
+        # Combine both methods (weighted average)
+        combined_scores = {}
         
-        chunks = [chunk for score, chunk in top_chunks]
+        # Add semantic scores (weight: 0.6)
+        for result in semantic_results:
+            chunk_idx = result['metadata']['chunk_index']
+            combined_scores[chunk_idx] = result['similarity'] * 0.6
         
-        logger.debug(f"Retrieved {len(chunks)} chunks for claim")
-        return chunks
+        # Add keyword scores (weight: 0.4)
+        for score, chunk in keyword_scored:
+            chunk_idx = self.chunks.index(chunk)
+            combined_scores[chunk_idx] = combined_scores.get(chunk_idx, 0.0) + score * 0.4
+        
+        # Sort by combined score
+        sorted_chunks_idx = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
+        
+        # Get top-k chunks
+        top_chunk_indices = [idx for idx, _ in sorted_chunks_idx[:top_k]]
+        result_chunks = [self.chunks[idx] for idx in top_chunk_indices if idx < len(self.chunks)]
+        
+        # Re-sort by temporal order
+        result_chunks.sort(key=lambda x: x.temporal_order)
+        
+        # Track retrieval
+        avg_sim = sum(combined_scores.values()) / len(combined_scores) if combined_scores else 0.0
+        top_chunk_id = f"chunk_{top_chunk_indices[0]}" if top_chunk_indices else None
+        self.retrieval_tracker.log_retrieval(claim.text[:100], len(result_chunks), avg_sim, top_chunk_id)
+        
+        logger.debug(f"Retrieved {len(result_chunks)} chunks with semantic + keyword search")
+        return result_chunks
     
     def _score_chunks(self, claim: Claim) -> List[Tuple[float, Chunk]]:
         """

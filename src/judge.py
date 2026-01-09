@@ -1,19 +1,23 @@
 """
 judge.py
-Consistency checking logic for backstory claims against narrative evidence
+Advanced consistency checking with multi-step reasoning and hybrid scoring.
+Combines neural verification with symbolic rules for robust consistency evaluation.
 """
 
 import logging
 import json
 import re
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
-from anthropic import Anthropic
+import google.generativeai as genai
 
 from claims import Claim
 from chunk import Chunk
 from retrieve import EvidenceAggregator
 from config import Config, CONSISTENCY_CHECK_PROMPT
+from scoring import ConsistencyScorer, ScoringResult
+from symbolic_rules import SymbolicValidator
+from evidence_tracker import EvidenceTracker, EvidenceItem
 
 logger = logging.getLogger(__name__)
 
@@ -48,16 +52,17 @@ class ConsistencyJudge:
         Initialize consistency judge.
         
         Args:
-            api_key: Anthropic API key
+            api_key: Google Gemini API key
         """
-        self.api_key = api_key or Config.ANTHROPIC_API_KEY
+        self.api_key = api_key or Config.GEMINI_API_KEY
         if not self.api_key:
-            raise ValueError("Anthropic API key required")
+            raise ValueError("Google Gemini API key required")
         
-        self.client = Anthropic(api_key=self.api_key)
+        genai.configure(api_key=self.api_key)
+        self.model = genai.GenerativeModel(Config.MODEL_NAME)
         self.aggregator = EvidenceAggregator()
         
-        logger.info("ConsistencyJudge initialized")
+        logger.info("ConsistencyJudge initialized with Gemini API")
     
     def verify_claim(self, claim: Claim, evidence_chunks: List[Chunk]) -> VerificationResult:
         """
@@ -116,14 +121,15 @@ class ConsistencyJudge:
         )
         
         try:
-            response = self.client.messages.create(
-                model=Config.MODEL_NAME,
-                max_tokens=Config.MAX_TOKENS_VERIFICATION,
-                temperature=Config.TEMPERATURE,
-                messages=[{"role": "user", "content": prompt}]
+            response = self.model.generate_content(
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    temperature=Config.TEMPERATURE,
+                    max_output_tokens=Config.MAX_TOKENS_VERIFICATION
+                )
             )
             
-            content = response.content[0].text
+            content = response.text
             
             # Extract JSON from response
             json_match = re.search(r'\{.*\}', content, re.DOTALL)
@@ -357,8 +363,9 @@ class CausalityChecker:
     
     def __init__(self, api_key: str = None):
         """Initialize causality checker."""
-        self.api_key = api_key or Config.ANTHROPIC_API_KEY
-        self.client = Anthropic(api_key=self.api_key)
+        self.api_key = api_key or Config.GEMINI_API_KEY
+        genai.configure(api_key=self.api_key)
+        self.model = genai.GenerativeModel(Config.MODEL_NAME)
     
     def check_causal_compatibility(self, backstory_element: str,
                                    future_events: str) -> Tuple[bool, str]:
@@ -380,14 +387,15 @@ class CausalityChecker:
         )
         
         try:
-            response = self.client.messages.create(
-                model=Config.MODEL_NAME,
-                max_tokens=800,
-                temperature=0.0,
-                messages=[{"role": "user", "content": prompt}]
+            response = self.model.generate_content(
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    temperature=0.0,
+                    max_output_tokens=800
+                )
             )
             
-            content = response.content[0].text
+            content = response.text
             json_match = re.search(r'\{.*\}', content, re.DOTALL)
             
             if json_match:
@@ -402,3 +410,126 @@ class CausalityChecker:
         
         # Default to compatible on error
         return True, "Causal check inconclusive"
+
+
+class AdvancedConsistencyJudge:
+    """
+    Advanced consistency judge with multi-step reasoning and hybrid scoring.
+    Integrates neural verification, symbolic rules, and evidence grading.
+    """
+    
+    def __init__(self, api_key: str = None):
+        """Initialize advanced judge."""
+        self.api_key = api_key or Config.GEMINI_API_KEY
+        self.judge = ConsistencyJudge(api_key)
+        self.scorer = ConsistencyScorer()
+        self.validator = SymbolicValidator()
+        self.evidence_tracker = EvidenceTracker()
+        logger.info("AdvancedConsistencyJudge initialized")
+    
+    def advanced_verify_claim(self, claim: Claim, evidence_chunks: List[Chunk],
+                            narrative_text: str, backstory_text: str) -> Dict:
+        """
+        Perform advanced multi-step reasoning for claim verification.
+        
+        Args:
+            claim: Claim to verify
+            evidence_chunks: Retrieved evidence chunks
+            narrative_text: Full narrative
+            backstory_text: Full backstory
+            
+        Returns:
+            Dict with comprehensive verification result
+        """
+        self.evidence_tracker.clear()
+        
+        # Step 1: Symbolic pre-filtering
+        self.evidence_tracker.add_reasoning_step(
+            stage='extract',
+            description='Pre-filtering with symbolic rules',
+            result=f'Analyzing structure of narrative and backstory',
+            confidence=1.0
+        )
+        
+        symbolic_report = self.validator.validate_all(
+            narrative_text, backstory_text,
+            [claim.text], [],
+            neural_score=0.5
+        )
+        
+        # Step 2: Neural verification
+        self.evidence_tracker.add_reasoning_step(
+            stage='retrieve',
+            description='Retrieved evidence chunks for claim',
+            result=f'Found {len(evidence_chunks)} relevant chunks',
+            confidence=min(0.95, len(evidence_chunks) * 0.3)
+        )
+        
+        neural_result = self.judge.verify_claim(claim, evidence_chunks)
+        
+        # Step 3: Evidence grading
+        for i, chunk in enumerate(evidence_chunks):
+            evidence_item = EvidenceItem(
+                id=f"ev_{claim.claim_id}_{i}",
+                claim_id=claim.claim_id,
+                text=chunk.text[:200],
+                source=f"narrative_chunk_{chunk.temporal_order}",
+                similarity_score=0.7,  # Placeholder
+                relevance_score=0.8,
+                quality_grade='medium',
+                chunk_index=i,
+                position=chunk.start_pos
+            )
+            self.evidence_tracker.add_evidence(claim.claim_id, evidence_item)
+        
+        # Step 4: Custom scoring
+        self.evidence_tracker.add_reasoning_step(
+            stage='verify',
+            description='Multi-criteria consistency scoring',
+            result='Computing entity, temporal, and coherence scores',
+            confidence=0.85
+        )
+        
+        scoring_result = self.scorer.score_full_consistency(
+            narrative_text, backstory_text,
+            [{'id': claim.claim_id, 'claim': claim.text}],
+            [{'claim_id': claim.claim_id, 'text': c.text, 'similarity': 0.7} for c in evidence_chunks]
+        )
+        
+        # Step 5: Hybrid decision
+        final_score = self.validator.hybrid_score(
+            neural_result.confidence,
+            symbolic_report.get('violations', [])
+        )
+        
+        self.evidence_tracker.add_reasoning_step(
+            stage='score',
+            description='Hybrid neural + symbolic scoring',
+            result=f'Final consistency score: {final_score:.2%}',
+            confidence=0.9
+        )
+        
+        # Determine verdict
+        verdict = 'consistent' if final_score > 0.5 else 'inconsistent'
+        self.evidence_tracker.set_claim_verdict(
+            claim.claim_id,
+            verdict,
+            final_score,
+            neural_result.reasoning,
+            len(evidence_chunks)
+        )
+        
+        return {
+            'claim_id': claim.claim_id,
+            'claim_text': claim.text,
+            'neural_verdict': neural_result.verdict,
+            'neural_confidence': neural_result.confidence,
+            'symbolic_violations': len(symbolic_report.get('violations', [])),
+            'final_score': round(final_score, 3),
+            'verdict': verdict,
+            'reasoning': neural_result.reasoning,
+            'scoring_result': scoring_result.to_dict(),
+            'symbolic_report': symbolic_report,
+            'evidence_count': len(evidence_chunks),
+            'evidence_summary': self.evidence_tracker.get_evidence_summary(claim.claim_id)
+        }

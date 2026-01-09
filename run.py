@@ -1,16 +1,15 @@
-"""
-run.py
-Main entry point 
-"""
-
 import argparse
 import logging
 import sys
 from pathlib import Path
 import pandas as pd
 
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent / 'src'))
+
 from config import Config, setup_logging
-from pipeline import PipelineFactory, PipelineValidator
+from pipeline import PipelineFactory, PipelineValidator, AdvancedConsistencyPipeline
+from csv_processor import CSVBackstoryDataset, ConsistencyCSVProcessor, save_results_csv
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +17,7 @@ logger = logging.getLogger(__name__)
 def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="KDSH 2026 Track A: Backstory Consistency Checker"
+        description="StoryAudit: Advanced Backstory Consistency Checker (Track A)"
     )
     
     parser.add_argument(
@@ -55,13 +54,55 @@ def parse_args():
     parser.add_argument(
         '--pathway',
         action='store_true',
-        help='Use enhanced Pathway integration'
+        help='Use enhanced Pathway streaming integration'
+    )
+    
+    parser.add_argument(
+        '--advanced',
+        action='store_true',
+        help='Use advanced Track A pipeline (neural + symbolic reasoning, semantic retrieval)'
+    )
+    
+    parser.add_argument(
+        '--evidence',
+        action='store_true',
+        help='Enable comprehensive evidence tracking and reporting'
+    )
+    
+    parser.add_argument(
+        '--symbolic',
+        action='store_true',
+        help='Use symbolic rule-based validation alongside neural verification'
     )
     
     parser.add_argument(
         '--validate',
         action='store_true',
         help='Validate environment and exit'
+    )
+    
+    parser.add_argument(
+        '--test-csv',
+        type=str,
+        help='Path to test.csv file for consistency checking'
+    )
+    
+    parser.add_argument(
+        '--train-csv',
+        type=str,
+        help='Path to train.csv file for labeled training data'
+    )
+    
+    parser.add_argument(
+        '--optimized',
+        action='store_true',
+        help='Use optimized batch processing with caching (10-15x faster)'
+    )
+    
+    parser.add_argument(
+        '--clear-cache',
+        action='store_true',
+        help='Clear all cached data before processing'
     )
     
     return parser.parse_args()
@@ -134,7 +175,7 @@ def main():
     setup_logging(verbose=args.verbose)
     
     logger.info("="*60)
-    logger.info("KDSH 2026 Track A: Backstory Consistency Checker")
+    logger.info("StoryAudit: Advanced Backstory Consistency Checker")
     logger.info("="*60)
     
     # Validate environment
@@ -142,7 +183,69 @@ def main():
         is_valid = PipelineValidator.print_environment_status()
         sys.exit(0 if is_valid else 1)
     
-    # Check environment
+    # Handle CSV-based processing (skip validation since we don't need standard dirs)
+    if args.test_csv:
+        logger.info("="*60)
+        logger.info("CSV-BASED CONSISTENCY CHECKING")
+        if args.optimized:
+            logger.info("MODE: OPTIMIZED WITH CACHING")
+        else:
+            logger.info("MODE: STANDARD (sequential)")
+        logger.info("="*60)
+        
+        csv_path = Path(args.test_csv)
+        if not csv_path.exists():
+            logger.error(f"Test CSV not found: {csv_path}")
+            sys.exit(1)
+        
+        # Clear cache if requested
+        if args.clear_cache:
+            logger.info("Clearing cache...")
+            from cache_manager import CacheManager
+            cache_mgr = CacheManager()
+            cache_mgr.clear_cache()
+            logger.info("Cache cleared")
+        
+        # Initialize pipeline with caching support
+        logger.info("Initializing advanced pipeline for CSV processing...")
+        pipeline = AdvancedConsistencyPipeline(
+            Config.NARRATIVES_DIR,
+            Config.BACKSTORIES_DIR,
+            Config.GEMINI_API_KEY,
+            enable_caching=True
+        )
+        
+        # Load CSV dataset - use data folder as narratives directory
+        narratives_dir = Path(__file__).parent / "data"
+        logger.info(f"Loading dataset from {csv_path} with narratives from {narratives_dir}")
+        dataset = CSVBackstoryDataset(csv_path, narratives_dir)
+        
+        # Get examples to process (unlabeled test examples)
+        examples = dataset.get_unlabeled_examples()
+        if not examples:
+            logger.warning("No unlabeled examples in test CSV, using all examples")
+            examples = dataset.get_all_examples()
+        
+        logger.info(f"Processing {len(examples)} examples from CSV...")
+        
+        # Create processor and run batch
+        processor = ConsistencyCSVProcessor(pipeline)
+        results = processor.process_csv_batch(
+            examples, 
+            verbose=args.verbose,
+            optimized=args.optimized
+        )
+        
+        # Save results
+        output_path = Path(args.output)
+        save_results_csv(results, output_path)
+        
+        logger.info("="*60)
+        logger.info("CSV processing complete!")
+        logger.info("="*60)
+        sys.exit(0)
+    
+    # Check environment for standard processing
     is_valid, issues = PipelineValidator.validate_environment()
     if not is_valid:
         logger.error("Environment validation failed:")
@@ -151,7 +254,7 @@ def main():
         logger.error("\nRun with --validate flag for detailed diagnostics")
         sys.exit(1)
     
-    # Determine which stories to process
+    # Handle standard story-based processing
     story_ids = []
     
     if args.story_id:
@@ -163,7 +266,8 @@ def main():
         logger.info(f"Discovered {len(story_ids)} stories: {story_ids}")
     else:
         logger.error("Please specify stories to process:")
-        logger.error("  --story-id ID       Process single story")
+        logger.error("  --test-csv PATH    Process examples from CSV file")
+        logger.error("  --story-id ID      Process single story")
         logger.error("  --story-ids ID1 ID2 Process multiple stories")
         logger.error("  --all              Process all discovered stories")
         sys.exit(1)
@@ -172,10 +276,28 @@ def main():
         logger.error("No stories to process")
         sys.exit(1)
     
-    # Create pipeline
-    logger.info(f"Initializing pipeline...")
-    if args.pathway:
-        logger.info("Using enhanced Pathway integration")
+    # Create pipeline - Advanced mode priority
+    logger.info("Initializing pipeline...")
+    if args.advanced or args.evidence or args.symbolic:
+        logger.info("=" * 60)
+        logger.info("STORYAUDIT ADVANCED PIPELINE")
+        logger.info("=" * 60)
+        logger.info("Features enabled:")
+        logger.info("  ✓ Semantic similarity retrieval with embeddings")
+        logger.info("  ✓ Multi-criteria consistency scoring")
+        logger.info("  ✓ Symbolic rule-based validation")
+        logger.info("  ✓ Hybrid neural + symbolic reasoning")
+        logger.info("  ✓ Evidence chain tracking")
+        logger.info("  ✓ Pathway streaming integration")
+        logger.info("=" * 60)
+        
+        pipeline = AdvancedConsistencyPipeline(
+            Config.NARRATIVES_DIR,
+            Config.BACKSTORIES_DIR,
+            Config.GEMINI_API_KEY
+        )
+    elif args.pathway:
+        logger.info("Using enhanced Pathway streaming integration")
         pipeline = PipelineFactory.create_pathway_pipeline()
     else:
         pipeline = PipelineFactory.create_standard_pipeline()

@@ -8,7 +8,7 @@ import json
 import re
 from typing import List
 from dataclasses import dataclass
-from anthropic import Anthropic
+import google.generativeai as genai
 
 from config import Config, CLAIM_EXTRACTION_PROMPT
 
@@ -38,14 +38,15 @@ class ClaimExtractor:
         Initialize claim extractor.
         
         Args:
-            api_key: Anthropic API key (defaults to Config)
+            api_key: Google Gemini API key (defaults to Config)
         """
-        self.api_key = api_key or Config.ANTHROPIC_API_KEY
+        self.api_key = api_key or Config.GEMINI_API_KEY
         if not self.api_key:
-            raise ValueError("Anthropic API key required")
+            raise ValueError("Google Gemini API key required")
         
-        self.client = Anthropic(api_key=self.api_key)
-        logger.info("ClaimExtractor initialized")
+        genai.configure(api_key=self.api_key)
+        self.model = genai.GenerativeModel(Config.MODEL_NAME)
+        logger.info("ClaimExtractor initialized with Gemini API")
     
     def extract_claims(self, backstory: str, story_id: str) -> List[Claim]:
         """
@@ -77,6 +78,7 @@ class ClaimExtractor:
     def _call_llm_extraction(self, backstory: str) -> dict:
         """
         Call LLM to extract claims from backstory.
+        Parses plain text format: CATEGORY | CLAIM | IMPORTANCE
         
         Returns:
             Dict with extracted claims
@@ -84,41 +86,78 @@ class ClaimExtractor:
         prompt = CLAIM_EXTRACTION_PROMPT.format(backstory=backstory)
         
         try:
-            response = self.client.messages.create(
-                model=Config.MODEL_NAME,
-                max_tokens=Config.MAX_TOKENS_EXTRACTION,
-                temperature=Config.TEMPERATURE,
-                messages=[{"role": "user", "content": prompt}]
+            response = self.model.generate_content(
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    temperature=Config.TEMPERATURE,
+                    max_output_tokens=Config.MAX_TOKENS_EXTRACTION
+                )
             )
             
-            content = response.content[0].text
+            content = response.text.strip()
             
-            # Extract JSON from response
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
-            if not json_match:
-                logger.error("No JSON found in LLM response")
-                return {"claims": []}
+            # Remove markdown code blocks if present
+            if content.startswith('```'):
+                content = '\n'.join(content.split('\n')[1:-1]).strip()
             
-            result = json.loads(json_match.group())
+            # Parse plain text format
+            claims_list = []
+            line_num = 0
             
-            if "claims" not in result:
-                logger.error("Invalid response structure: missing 'claims' key")
-                return {"claims": []}
+            for line in content.split('\n'):
+                line = line.strip()
+                if not line or line.startswith('#') or line.startswith('//'):
+                    continue  # Skip empty lines and comments
+                
+                # Try to parse: CATEGORY | CLAIM | IMPORTANCE
+                if '|' not in line:
+                    continue  # Skip lines without pipes
+                
+                parts = [p.strip() for p in line.split('|')]
+                if len(parts) < 2:
+                    continue
+                
+                category = parts[0].lower()
+                claim_text = parts[1]
+                importance = parts[2].lower() if len(parts) > 2 else "medium"
+                
+                # Validate category
+                valid_categories = {
+                    'character_events', 'character_traits', 'skills_knowledge',
+                    'relationships', 'beliefs_motivations', 'physical', 'constraints'
+                }
+                
+                if category not in valid_categories:
+                    continue  # Skip invalid categories
+                
+                if not claim_text:
+                    continue  # Skip empty claims
+                
+                claims_list.append({
+                    "id": f"claim_{line_num}",
+                    "category": category,
+                    "text": claim_text,
+                    "importance": importance
+                })
+                line_num += 1
             
-            logger.debug(f"LLM extracted {len(result['claims'])} raw claims")
-            return result
+            logger.info(f"Successfully extracted {len(claims_list)} claims from LLM response")
+            return {"claims": claims_list}
             
         except Exception as e:
-            logger.error(f"Claim extraction failed: {e}")
+            logger.error(f"Claim extraction failed: {type(e).__name__}: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
             # Return empty but valid structure
             return {"claims": []}
     
     def _parse_claims(self, raw_claims: dict, story_id: str) -> List[Claim]:
         """
         Parse raw LLM output into Claim objects.
+        Works with the new plain-text format.
         
         Args:
-            raw_claims: Dict from LLM response
+            raw_claims: Dict from LLM response with 'claims' key
             story_id: Story identifier
             
         Returns:
@@ -126,22 +165,27 @@ class ClaimExtractor:
         """
         claims = []
         
-        for idx, raw_claim in enumerate(raw_claims.get("claims", [])):
+        for raw_claim in raw_claims.get("claims", []):
             try:
-                # Validate required fields
+                # Validate it's a dict
                 if not isinstance(raw_claim, dict):
+                    logger.debug(f"Skipping non-dict claim: {raw_claim}")
                     continue
                 
-                claim_text = raw_claim.get("claim", "").strip()
+                # Get claim text (could be 'text' or 'claim' key)
+                claim_text = raw_claim.get("text") or raw_claim.get("claim", "")
+                claim_text = claim_text.strip()
+                
                 if not claim_text:
                     continue
                 
                 category = raw_claim.get("category", "unknown")
                 importance = raw_claim.get("importance", "medium")
+                claim_id = raw_claim.get("id", f"claim_{len(claims)}")
                 
-                # Create claim with generated ID
+                # Create Claim object
                 claim = Claim(
-                    claim_id=f"{story_id}_claim_{idx:03d}",
+                    claim_id=f"{story_id}_{claim_id}",
                     category=category,
                     text=claim_text,
                     importance=importance
@@ -150,7 +194,7 @@ class ClaimExtractor:
                 claims.append(claim)
                 
             except Exception as e:
-                logger.warning(f"Failed to parse claim {idx}: {e}")
+                logger.warning(f"Failed to parse claim: {e}")
                 continue
         
         return claims
