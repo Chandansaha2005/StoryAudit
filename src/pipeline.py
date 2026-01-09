@@ -7,11 +7,11 @@ import logging
 from typing import Tuple, Dict, List
 from pathlib import Path
 
-from ingest import NarrativeLoader, BackstoryLoader, PathwayDocumentStore
-from chunk import NarrativeChunker, ChunkIndex
-from claims import ClaimExtractor, ClaimValidator
-from retrieve import EvidenceRetriever, PathwayEvidenceIndex
-from judge import ConsistencyJudge, DecisionAggregator, VerificationResult
+from .ingest import NarrativeLoader, BackstoryLoader, PathwayDocumentStore
+from .chunk import NarrativeChunker, ChunkIndex
+from .claims import ClaimExtractor, ClaimValidator
+from .retrieve import EvidenceRetriever, PathwayEvidenceIndex
+from .judge import ConsistencyJudge, DecisionAggregator, VerificationResult
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ class ConsistencyCheckPipeline:
             overlap=Config.CHUNK_OVERLAP
         )
         self.claim_extractor = ClaimExtractor(api_key=self.api_key)
-        self.judge = ConsistencyJudge(api_key=self.api_key)
+        self.judge = ConsistencyJudge(model="llama3")
         self.decision_aggregator = DecisionAggregator()
         
         logger.info("ConsistencyCheckPipeline initialized")
@@ -123,7 +123,7 @@ class ConsistencyCheckPipeline:
             metadata["verification_results"] = len(results)
             
             # Count contradictions
-            contradictions = sum(1 for r in results if r.is_contradiction())
+            contradictions = sum(1 for r in results if r.get("verdict", "").upper() == "CONTRADICTION")
             metadata["contradictions_found"] = contradictions
             
             # Stage 6: Make final decision
@@ -254,7 +254,7 @@ class PipelineFactory:
         return ConsistencyCheckPipeline(
             narratives_dir=config.NARRATIVES_DIR,
             backstories_dir=config.BACKSTORIES_DIR,
-            api_key=config.ANTHROPIC_API_KEY
+            api_key=config.GEMINI_API_KEY
         )
     
     @staticmethod
@@ -274,7 +274,7 @@ class PipelineFactory:
         return PathwayIntegrationPipeline(
             narratives_dir=config.NARRATIVES_DIR,
             backstories_dir=config.BACKSTORIES_DIR,
-            api_key=config.ANTHROPIC_API_KEY
+            api_key=config.GEMINI_API_KEY
         )
 
 
@@ -294,8 +294,8 @@ class PipelineValidator:
         issues = []
         
         # Check API key
-        if not Config.ANTHROPIC_API_KEY:
-            issues.append("ANTHROPIC_API_KEY not set in environment")
+        if not Config.GEMINI_API_KEY:
+            issues.append("GEMINI_API_KEY not set in environment")
         
         # Check data directories
         if not Config.NARRATIVES_DIR.exists():
@@ -327,7 +327,7 @@ class PipelineValidator:
             logger.info("✓ Environment validation passed")
             logger.info(f"  Narratives dir: {Config.NARRATIVES_DIR}")
             logger.info(f"  Backstories dir: {Config.BACKSTORIES_DIR}")
-            logger.info(f"  API key: {'Set' if Config.ANTHROPIC_API_KEY else 'Not set'}")
+            logger.info(f"  API key: {'Set' if Config.GEMINI_API_KEY else 'Not set'}")
         else:
             logger.error("✗ Environment validation failed:")
             for issue in issues:

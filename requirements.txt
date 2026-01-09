@@ -1,6 +1,6 @@
 # Core dependencies
 pathway==0.15.0
-anthropic>=0.40.0
+google-generativeai>=0.8.0  # Google Gemini API (replaces anthropic)
 pandas>=2.0.0
 numpy>=1.24.0
 

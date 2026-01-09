@@ -10,7 +10,7 @@ from pathlib import Path
 import pandas as pd
 
 from config import Config, setup_logging
-from pipeline import PipelineFactory, PipelineValidator
+from src.pipeline import PipelineFactory, PipelineValidator
 
 logger = logging.getLogger(__name__)
 

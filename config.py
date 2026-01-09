@@ -5,6 +5,10 @@ System configuration and LLM prompts for KDSH Track A
 
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # ============================================================================
 # SYSTEM CONFIGURATION
@@ -21,8 +25,8 @@ class Config:
     RESULTS_FILE = PROJECT_ROOT / "results.csv"
     
     # API Configuration
-    ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-    MODEL_NAME = "claude-sonnet-4-20250514"
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+    MODEL_NAME = "gemini-2.0-flash"  # Using Gemini 2.0 Flash for better performance
     
     # Chunking Parameters
     CHUNK_SIZE = 2500  # words per chunk

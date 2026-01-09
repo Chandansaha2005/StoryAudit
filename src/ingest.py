@@ -6,7 +6,15 @@ Pathway-based document ingestion and management
 import logging
 from pathlib import Path
 from typing import Optional
-import pathway as pw
+
+# Try to import pathway, but don't fail if unavailable (Windows compatibility)
+try:
+    import pathway as pw
+    HAS_PATHWAY = True
+except (ImportError, AttributeError) as e:
+    logging.warning(f"Pathway not available on this platform: {e}. Using fallback mode.")
+    pw = None
+    HAS_PATHWAY = False
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +52,7 @@ class DocumentIngestion:
             logger.error(f"Failed to load {file_path}: {e}")
             raise
     
-    def create_pathway_table(self, documents: dict[str, str]) -> pw.Table:
+    def create_pathway_table(self, documents: dict[str, str]):
         """
         Create a Pathway table from documents for stream processing.
         
@@ -52,9 +60,17 @@ class DocumentIngestion:
             documents: Dict mapping document_id -> content
             
         Returns:
-            Pathway Table with document data
+            Pathway Table with document data, or dict if Pathway unavailable
         """
         logger.info(f"Creating Pathway table with {len(documents)} documents")
+        
+        if not HAS_PATHWAY:
+            # Fallback: return a simple dict-based "table" 
+            logger.warning("Using in-memory fallback for document store (Pathway unavailable)")
+            return {
+                "id": list(documents.keys()),
+                "text": list(documents.values())
+            }
         
         # Convert documents to Pathway-compatible format
         data = [
@@ -240,7 +256,7 @@ class PathwayDocumentStore:
     def __init__(self):
         """Initialize document store."""
         self.documents = {}
-        self.pathway_table: Optional[pw.Table] = None
+        self.pathway_table = None
         
     def add_document(self, doc_id: str, content: str, metadata: dict = None):
         """

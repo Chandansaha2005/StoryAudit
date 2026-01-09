@@ -8,7 +8,7 @@ import json
 import re
 from typing import List
 from dataclasses import dataclass
-from anthropic import Anthropic
+import google.generativeai as genai
 
 from config import Config, CLAIM_EXTRACTION_PROMPT
 
@@ -38,14 +38,15 @@ class ClaimExtractor:
         Initialize claim extractor.
         
         Args:
-            api_key: Anthropic API key (defaults to Config)
+            api_key: Google Gemini API key (defaults to Config)
         """
-        self.api_key = api_key or Config.ANTHROPIC_API_KEY
+        self.api_key = api_key or Config.GEMINI_API_KEY
         if not self.api_key:
-            raise ValueError("Anthropic API key required")
+            raise ValueError("Google Gemini API key required")
         
-        self.client = Anthropic(api_key=self.api_key)
-        logger.info("ClaimExtractor initialized")
+        genai.configure(api_key=self.api_key)
+        self.model = genai.GenerativeModel(Config.MODEL_NAME)
+        logger.info(f"ClaimExtractor initialized with {Config.MODEL_NAME}")
     
     def extract_claims(self, backstory: str, story_id: str) -> List[Claim]:
         """
@@ -84,14 +85,15 @@ class ClaimExtractor:
         prompt = CLAIM_EXTRACTION_PROMPT.format(backstory=backstory)
         
         try:
-            response = self.client.messages.create(
-                model=Config.MODEL_NAME,
-                max_tokens=Config.MAX_TOKENS_EXTRACTION,
-                temperature=Config.TEMPERATURE,
-                messages=[{"role": "user", "content": prompt}]
+            response = self.model.generate_content(
+                prompt,
+                generation_config={
+                    "max_output_tokens": Config.MAX_TOKENS_EXTRACTION,
+                    "temperature": Config.TEMPERATURE,
+                }
             )
             
-            content = response.content[0].text
+            content = response.text
             
             # Extract JSON from response
             json_match = re.search(r'\{.*\}', content, re.DOTALL)
