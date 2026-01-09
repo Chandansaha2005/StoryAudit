@@ -150,7 +150,8 @@ class ConsistencyJudge:
     def verify_claims_batch(self, claims: List[Claim], 
                            evidence_map: Dict[str, List[Chunk]]) -> List[dict]:
         """
-        Verify multiple claims in batch.
+        Verify multiple claims in batches (3-4 per API call) for cost efficiency.
+        Batching reduces API calls by ~75% while maintaining verification quality.
         
         Args:
             claims: List of claims to verify
@@ -160,18 +161,103 @@ class ConsistencyJudge:
             List of verification result dicts
         """
         results = []
+        batch_size = 4  # Verify 4 claims per API call
         
-        for i, claim in enumerate(claims):
-            logger.info(f"Verifying claim {i+1}/{len(claims)}")
+        # Process claims in batches
+        for batch_idx in range(0, len(claims), batch_size):
+            batch = claims[batch_idx:batch_idx + batch_size]
+            batch_num = (batch_idx // batch_size) + 1
+            total_batches = (len(claims) + batch_size - 1) // batch_size
             
-            evidence_chunks = evidence_map.get(claim.claim_id, [])
-            # Convert chunks to text
-            evidence_text = '\n'.join([chunk.text for chunk in evidence_chunks]) if evidence_chunks else "No evidence found"
+            logger.info(f"Verifying batch {batch_num}/{total_batches} ({len(batch)} claims)")
             
-            result = self.verify_claim(claim, evidence_text)
-            results.append(result)
+            # Build batch verification prompt
+            batch_claims_text = ""
+            for i, claim in enumerate(batch, 1):
+                evidence_chunks = evidence_map.get(claim.claim_id, [])
+                evidence_text = '\n'.join([chunk.text for chunk in evidence_chunks]) if evidence_chunks else "No evidence"
+                batch_claims_text += f"\nClaim {i}: {claim.text}\nEvidence: {evidence_text}\n---"
+            
+            # Verify batch together
+            batch_results = self._verify_batch_together(batch_claims_text, len(batch))
+            
+            # Parse results - one per claim
+            if isinstance(batch_results, list) and len(batch_results) == len(batch):
+                results.extend(batch_results)
+            else:
+                # Fallback: verify individually if batch fails
+                for claim in batch:
+                    evidence_chunks = evidence_map.get(claim.claim_id, [])
+                    evidence_text = '\n'.join([chunk.text for chunk in evidence_chunks]) if evidence_chunks else "No evidence found"
+                    result = self.verify_claim(claim, evidence_text)
+                    results.append(result)
         
         return results
+    
+    def _verify_batch_together(self, batch_claims_text: str, batch_size: int) -> List[dict]:
+        """
+        Verify multiple claims in a single API call.
+        
+        Args:
+            batch_claims_text: Formatted text with multiple claims and evidence
+            batch_size: Number of claims in this batch
+            
+        Returns:
+            List of verification result dicts (one per claim)
+        """
+        prompt = f"""Verify the consistency of these {batch_size} claims against their provided narrative evidence. For EACH claim, output a JSON object.
+
+{batch_claims_text}
+
+Output format: For each claim, respond with ONLY:
+{{"verdict": "CONSISTENT"|"CONTRADICTION", "confidence": 0.0-1.0, "reasoning": "brief reason", "key_evidence": ""}}
+
+Provide exactly {batch_size} JSON objects, one per line, with no other text."""
+        
+        try:
+            response = self.model.generate_content(
+                prompt,
+                generation_config={
+                    "max_output_tokens": 800,  # Reduced token limit
+                    "temperature": Config.TEMPERATURE,
+                }
+            )
+            
+            content = response.text.strip()
+            json_objects = []
+            
+            # Split by lines and extract JSON objects
+            for line in content.split('\n'):
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                    
+                # Try to extract JSON
+                start = line.find('{')
+                end = line.rfind('}')
+                if start >= 0 and end > start:
+                    try:
+                        json_str = line[start:end+1]
+                        obj = json.loads(json_str)
+                        json_objects.append(obj)
+                    except json.JSONDecodeError:
+                        pass
+            
+            # If we got the right number, return them
+            if len(json_objects) >= batch_size:
+                return json_objects[:batch_size]
+            
+            if len(json_objects) > 0:
+                logger.warning(f"Expected {batch_size} results, got {len(json_objects)} - using fallback")
+                return json_objects
+            
+            # Fallback: return empty list to trigger individual verification
+            logger.warning(f"Failed to parse batch results, will verify individually")
+            return []
+        
+        except Exception as e:
+            logger.error(f"Batch verification failed: {e}")
+            return []
 
 
 class DecisionAggregator:
@@ -281,8 +367,8 @@ class DecisionAggregator:
         ]
         
         # Group by verdict
-        contradictions = [r for r in results if r.verdict == "CONTRADICTION"]
-        consistent = [r for r in results if r.verdict == "CONSISTENT"]
+        contradictions = [r for r in results if r.get("verdict") == "CONTRADICTION" or (hasattr(r, 'verdict') and r.verdict == "CONTRADICTION")]
+        consistent = [r for r in results if r.get("verdict") == "CONSISTENT" or (hasattr(r, 'verdict') and r.verdict == "CONSISTENT")]
         
         lines.append(f"Contradictions: {len(contradictions)}")
         lines.append(f"Consistent: {len(consistent)}")
@@ -294,9 +380,21 @@ class DecisionAggregator:
             lines.append("-" * 60)
             
             for i, result in enumerate(contradictions, 1):
-                lines.append(f"{i}. Claim: {result.claim.text}")
-                lines.append(f"   Confidence: {result.confidence:.2f}")
-                lines.append(f"   Reasoning: {result.reasoning}")
+                # Handle both dict and object formats
+                if isinstance(result, dict):
+                    claim_text = result.get("claim", "")
+                    if isinstance(claim_text, dict):
+                        claim_text = claim_text.get("text", "")
+                    confidence = result.get("confidence", 0)
+                    reasoning = result.get("reasoning", "")
+                else:
+                    claim_text = result.claim.text if hasattr(result, 'claim') else ""
+                    confidence = result.confidence if hasattr(result, 'confidence') else 0
+                    reasoning = result.reasoning if hasattr(result, 'reasoning') else ""
+                
+                lines.append(f"{i}. Claim: {claim_text}")
+                lines.append(f"   Confidence: {confidence:.2f}")
+                lines.append(f"   Reasoning: {reasoning}")
                 lines.append("")
         
         lines.append("=" * 60)

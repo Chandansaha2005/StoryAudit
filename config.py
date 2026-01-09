@@ -39,9 +39,9 @@ class Config:
     # Consistency Checking
     CONTRADICTION_CONFIDENCE_THRESHOLD = 0.8  # confidence needed to mark as contradiction
     
-    # LLM Parameters
-    MAX_TOKENS_EXTRACTION = 3000
-    MAX_TOKENS_VERIFICATION = 1500
+    # LLM Parameters - OPTIMIZED FOR COST EFFICIENCY
+    MAX_TOKENS_EXTRACTION = 2000  # Reduced from 3000 (still sufficient for claims)
+    MAX_TOKENS_VERIFICATION = 1000  # Reduced from 1500 (batch verification uses shorter responses)
     TEMPERATURE = 0.0  # deterministic for consistency
 
 
