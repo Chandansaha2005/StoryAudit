@@ -1,36 +1,31 @@
 """
-Advanced implementation using Pathway's Vector Store
-for better long-context handling and retrieval.
+Advanced implementation using Pathway's Vector Store.
 """
 
 import pathway as pw
 from pathway.xpacks.llm import embedders, llms, prompts
-import anthropic
 import os
 from typing import List, Dict, Tuple
 import json
+import google.generativeai as genai
 
 class PathwayBackstoryChecker:
-    """
-    Advanced checker using Pathway's streaming and vector store capabilities.
-    """
+    """Advanced checker using Pathway vector store."""
     
     def __init__(self, api_key: str = None):
-        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
-        self.client = anthropic.Anthropic(api_key=self.api_key)
+        genai.configure(api_key=api_key)
+        self.model = genai.GenerativeModel("gemini-2.0-flash")
         
     def setup_pathway_pipeline(self, data_dir: str):
-        """
-        Set up Pathway pipeline for document ingestion and indexing.
-        """
-        # Read documents from directory
+        """Set up Pathway pipeline for document ingestion."""
+        # read documents from directory
         documents = pw.io.fs.read(
             data_dir,
             format="text",
             mode="static"
         )
         
-        # Split into chunks
+        # split into chunks
         chunked = documents.select(
             text=pw.apply(self.chunk_text, documents.data)
         )
@@ -38,9 +33,7 @@ class PathwayBackstoryChecker:
         return chunked
     
     def chunk_text(self, text: str, chunk_size: int = 2000, overlap: int = 200) -> List[str]:
-        """
-        Create overlapping chunks for better context preservation.
-        """
+        """Create overlapping chunks for context preservation."""
         chunks = []
         start = 0
         
@@ -48,13 +41,13 @@ class PathwayBackstoryChecker:
             end = start + chunk_size
             chunk = text[start:end]
             
-            # Try to break at sentence boundary
+            # try to break at sentence boundary
             if end < len(text):
                 last_period = chunk.rfind('.')
                 last_newline = chunk.rfind('\n')
                 break_point = max(last_period, last_newline)
                 
-                if break_point > chunk_size * 0.8:  # If we find a good break point
+                if break_point > chunk_size * 0.8:  # good break point
                     chunk = chunk[:break_point + 1]
                     end = start + break_point + 1
             
@@ -64,19 +57,17 @@ class PathwayBackstoryChecker:
         return chunks
     
     def build_evaluation_system(self):
-        """
-        Build a complete evaluation system with multi-stage reasoning.
-        """
+        """Build complete evaluation system for consistency."""
         system_prompt = """You are an expert literary analyst specializing in narrative consistency.
 
 Your task is to evaluate whether character backstories are logically consistent with the events,
 character development, and constraints established in a long narrative.
 
 Key principles:
-1. CAUSAL CONSISTENCY: Does the backstory make future events possible/plausible?
-2. CHARACTER CONSISTENCY: Does it align with demonstrated traits and behaviors?
-3. WORLD CONSISTENCY: Does it respect the rules and constraints of the narrative world?
-4. LOGICAL CONSISTENCY: Are there any logical contradictions or impossibilities?
+1. CAUSAL_CONSISTENCY: Does backstory make future events possible?
+2. CHARACTER_CONSISTENCY: Does it align with demonstrated traits?
+3. WORLD_CONSISTENCY: Does it respect narrative world rules?
+4. LOGICAL_CONSISTENCY: Any logical contradictions or impossibilities?
 
 Be rigorous but fair. Minor ambiguities should not count as inconsistencies.
 Focus on fundamental contradictions that break causality or character logic."""
@@ -84,9 +75,7 @@ Focus on fundamental contradictions that break causality or character logic."""
         return system_prompt
     
     def extract_critical_elements(self, backstory: str) -> Dict[str, List[str]]:
-        """
-        Extract structured elements from backstory for targeted verification.
-        """
+        """Extract structured elements from backstory text."""
         prompt = f"""Analyze this character backstory and extract elements in these categories:
 
 1. FORMATIVE_EVENTS: Key life events that shaped the character
@@ -109,13 +98,9 @@ Respond in JSON format:
   "constraints": ["constraint1", "constraint2"]
 }}"""
 
-        response = self.client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=2000,
-            messages=[{"role": "user", "content": prompt}]
-        )
+        response = self.model.generate_content(prompt)
         
-        content = response.content[0].text
+        content = response.text
         try:
             start = content.find('{')
             end = content.rfind('}') + 1
@@ -203,15 +188,11 @@ CONFIDENCE: [HIGH/MEDIUM/LOW]
 REASONING: [brief explanation]
 KEY_QUOTE: [most relevant quote from passages, if any]"""
 
-        response = self.client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=800,
-            messages=[{"role": "user", "content": prompt}]
-        )
+        response = self.model.generate_content(prompt)
         
-        result_text = response.content[0].text
+        result_text = response.text
         
-        # Parse result
+        # parse result
         status = "NEUTRAL"
         if "STATUS: SUPPORTED" in result_text:
             status = "SUPPORTED"

@@ -2,7 +2,7 @@ __version__ = "1.0.0"
 __author__ = "Your Team Name"
 __email__ = "your-email@example.com"
 
-# Core components
+# core components
 from .ingest import NarrativeLoader, BackstoryLoader, PathwayDocumentStore
 from .chunk import NarrativeChunker, ChunkIndex, Chunk
 from .claims import ClaimExtractor, Claim, ClaimValidator
@@ -11,31 +11,31 @@ from .judge import ConsistencyJudge, DecisionAggregator, VerificationResult
 from .pipeline import ConsistencyCheckPipeline, PipelineFactory
 
 __all__ = [
-    # Loaders
+    # loaders
     'NarrativeLoader',
     'BackstoryLoader',
     'PathwayDocumentStore',
     
-    # Chunking
+    # chunking
     'NarrativeChunker',
     'ChunkIndex',
     'Chunk',
     
-    # Claims
+    # claims
     'ClaimExtractor',
     'Claim',
     'ClaimValidator',
     
-    # Retrieval
+    # retrieval
     'EvidenceRetriever',
     'PathwayEvidenceIndex',
     
-    # Verification
+    # verification
     'ConsistencyJudge',
     'DecisionAggregator',
     'VerificationResult',
     
-    # Pipeline
+    # pipeline
     'ConsistencyCheckPipeline',
     'PipelineFactory',
 ]

@@ -1,6 +1,5 @@
 # StoryAudit: Backstory Consistency Verification System
 
-**Challenge**: Kharagpur Data Science Hackathon 2026 (Track A)  
 **Task**: Verify consistency of character backstories against long-form narratives using LLMs
 
 ## Overview
@@ -298,9 +297,8 @@ Possible causes:
 
 ## Contributors
 
-**Team**: TeesMaarKhanCoders  
-**Challenge**: KDSH 2026 Track A  
-**Date**: January 2026
+**Team**: StoryAudit Team  
+**Date**: 2026
 
 ---
 

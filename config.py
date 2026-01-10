@@ -1,13 +1,12 @@
 """
 config.py
-System configuration and LLM prompts for KDSH Track A
+System configuration and LLM prompts
 """
 
 import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
 # ============================================================================
@@ -15,34 +14,28 @@ load_dotenv()
 # ============================================================================
 
 class Config:
-    """Central configuration for the consistency checking system."""
+    """Central configuration for the system."""
     
-    # Paths
     PROJECT_ROOT = Path(__file__).parent
     DATA_DIR = PROJECT_ROOT / "data"
     NARRATIVES_DIR = DATA_DIR / "narratives"
     BACKSTORIES_DIR = DATA_DIR / "backstories"
     RESULTS_FILE = PROJECT_ROOT / "results.csv"
     
-    # API Configuration
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-    MODEL_NAME = "gemini-2.0-flash"  # Using Gemini 2.0 Flash for better performance
+    MODEL_NAME = "gemini-2.0-flash"
     
-    # Chunking Parameters
-    CHUNK_SIZE = 2500  # words per chunk
-    CHUNK_OVERLAP = 300  # word overlap between chunks
+    CHUNK_SIZE = 2500
+    CHUNK_OVERLAP = 300
     
-    # Retrieval Parameters
-    TOP_K_CHUNKS = 5  # number of chunks to retrieve per claim
-    SIMILARITY_THRESHOLD = 0.3  # minimum similarity for retrieval
+    TOP_K_CHUNKS = 5
+    SIMILARITY_THRESHOLD = 0.3
     
-    # Consistency Checking
-    CONTRADICTION_CONFIDENCE_THRESHOLD = 0.8  # confidence needed to mark as contradiction
+    CONTRADICTION_CONFIDENCE_THRESHOLD = 0.8
     
-    # LLM Parameters - OPTIMIZED FOR COST EFFICIENCY
-    MAX_TOKENS_EXTRACTION = 2000  # Reduced from 3000 (still sufficient for claims)
-    MAX_TOKENS_VERIFICATION = 1000  # Reduced from 1500 (batch verification uses shorter responses)
-    TEMPERATURE = 0.0  # deterministic for consistency
+    MAX_TOKENS_EXTRACTION = 2000
+    MAX_TOKENS_VERIFICATION = 1000
+    TEMPERATURE = 0.0
 
 
 # ============================================================================
@@ -163,27 +156,18 @@ class DecisionRules:
     
     @staticmethod
     def should_reject(claim_results: list) -> tuple[bool, str]:
-        """
-        Determine if backstory should be rejected (labeled 0).
-        
-        Args:
-            claim_results: List of consistency check results
-            
-        Returns:
-            (should_reject: bool, reason: str)
-        """
+        """Determine if backstory should be rejected."""
         high_confidence_contradictions = []
         medium_confidence_contradictions = []
         
         for result in claim_results:
-            if result.get("verdict") == "CONTRADICTION":
-                confidence = result.get("confidence", 0.0)
-                claim_info = result.get("claim", "unknown")
-                
-                if confidence >= Config.CONTRADICTION_CONFIDENCE_THRESHOLD:
-                    high_confidence_contradictions.append(claim_info)
-                elif confidence >= 0.6:
-                    medium_confidence_contradictions.append(claim_info)
+            confidence = result.get("confidence", 0.0)
+            claim_info = result.get("claim", "unknown")
+            
+            if confidence >= Config.CONTRADICTION_CONFIDENCE_THRESHOLD:
+                high_confidence_contradictions.append(claim_info)
+            elif confidence >= 0.6:
+                medium_confidence_contradictions.append(claim_info)
         
         # Decision logic: ANY high-confidence contradiction → reject
         if high_confidence_contradictions:
@@ -207,7 +191,7 @@ class DecisionRules:
 import logging
 
 def setup_logging(verbose: bool = False):
-    """Configure logging for the system."""
+    """Set up logging configuration."""
     level = logging.DEBUG if verbose else logging.INFO
     
     logging.basicConfig(
@@ -216,6 +200,6 @@ def setup_logging(verbose: bool = False):
         datefmt='%Y-%m-%d %H:%M:%S'
     )
     
-    # Reduce noise from third-party libraries
+    # reduce noise from third-party libraries
     logging.getLogger("pathway").setLevel(logging.WARNING)
-    logging.getLogger("anthropic").setLevel(logging.WARNING)
+    logging.getLogger("google").setLevel(logging.WARNING)
