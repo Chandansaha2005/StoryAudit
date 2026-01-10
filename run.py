@@ -7,18 +7,19 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+from typing import List, Dict
 import pandas as pd
 
 from config import Config, setup_logging
-from pipeline import PipelineFactory, PipelineValidator
+from src.pipeline import PipelineFactory, PipelineValidator
 
 logger = logging.getLogger(__name__)
 
 
 def parse_args():
-    """Parse command-line arguments."""
+    """Parse CLI arguments."""
     parser = argparse.ArgumentParser(
-        description="KDSH 2026 Track A: Backstory Consistency Checker"
+        description="StoryAudit: Backstory Consistency Checker"
     )
     
     parser.add_argument(
@@ -68,44 +69,25 @@ def parse_args():
 
 
 def discover_story_ids(narratives_dir: Path) -> list[str]:
-    """
-    Discover available story IDs from narratives directory.
-    
-    Args:
-        narratives_dir: Directory containing narrative files
-        
-    Returns:
-        List of story IDs
-    """
+    """Extract story IDs from files."""
     story_ids = []
     
     for file_path in narratives_dir.glob("*.txt"):
-        # Extract story ID from filename
-        # Handles: story_1.txt, 1.txt, narrative_1.txt
-        name = file_path.stem  # filename without extension
-        
-        # Try to extract numeric ID
+        # extract numeric id or filename
+        name = file_path.stem
         import re
         match = re.search(r'(\d+)', name)
         if match:
             story_id = match.group(1)
             story_ids.append(story_id)
         else:
-            # Use full filename as ID
             story_ids.append(name)
     
     return sorted(set(story_ids))
 
 
-def save_results(results: list[dict], output_path: str):
-    """
-    Save results to CSV file.
-    
-    Args:
-        results: List of result dicts
-        output_path: Output file path
-    """
-    # Extract core fields for CSV
+def save_results(results: List[Dict], output_path: str = None) -> None:
+    """Save results to CSV."""
     csv_data = []
     for result in results:
         csv_data.append({
@@ -119,30 +101,22 @@ def save_results(results: list[dict], output_path: str):
     
     logger.info(f"Results saved to {output_path}")
     logger.info(f"Total stories processed: {len(results)}")
-    
-    # Print summary statistics
-    predictions = df['Prediction'].value_counts()
-    logger.info(f"Consistent (1): {predictions.get(1, 0)}")
-    logger.info(f"Inconsistent (0): {predictions.get(0, 0)}")
 
 
 def main():
-    """Main execution function."""
+    """Main CLI entry point."""
+    setup_logging()
+    
     args = parse_args()
     
-    # Setup logging
-    setup_logging(verbose=args.verbose)
-    
     logger.info("="*60)
-    logger.info("KDSH 2026 Track A: Backstory Consistency Checker")
+    logger.info("StoryAudit: Backstory Consistency Checker")
     logger.info("="*60)
     
-    # Validate environment
     if args.validate:
         is_valid = PipelineValidator.print_environment_status()
         sys.exit(0 if is_valid else 1)
     
-    # Check environment
     is_valid, issues = PipelineValidator.validate_environment()
     if not is_valid:
         logger.error("Environment validation failed:")
@@ -152,7 +126,6 @@ def main():
         sys.exit(1)
     
     # Determine which stories to process
-    story_ids = []
     
     if args.story_id:
         story_ids = [args.story_id]
@@ -175,7 +148,7 @@ def main():
     # Create pipeline
     logger.info(f"Initializing pipeline...")
     if args.pathway:
-        logger.info("Using enhanced Pathway integration")
+        logger.info("Using Pathway pipeline")
         pipeline = PipelineFactory.create_pathway_pipeline()
     else:
         pipeline = PipelineFactory.create_standard_pipeline()
@@ -193,7 +166,6 @@ def main():
     
     # Save results
     save_results(results, args.output)
-    
     logger.info("="*60)
     logger.info("Processing complete!")
     logger.info("="*60)

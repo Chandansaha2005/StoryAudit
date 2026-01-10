@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Chunk:
-    """Represents a chunk of narrative text with metadata."""
+    """Narrative chunk with metadata."""
     chunk_id: str
     text: str
     start_pos: int  # Character position in original text
@@ -26,19 +26,10 @@ class Chunk:
 
 
 class NarrativeChunker:
-    """
-    Intelligent chunking strategy that preserves temporal ordering
-    and maintains context across chunk boundaries.
-    """
+    """Split narratives maintaining temporal order."""
     
     def __init__(self, chunk_size: int = 2500, overlap: int = 300):
-        """
-        Initialize chunker.
-        
-        Args:
-            chunk_size: Target words per chunk
-            overlap: Word overlap between consecutive chunks
-        """
+        """Initialize chunker."""
         self.chunk_size = chunk_size
         self.overlap = overlap
         
@@ -48,19 +39,10 @@ class NarrativeChunker:
         logger.info(f"Chunker initialized: size={chunk_size}, overlap={overlap}")
     
     def chunk_narrative(self, text: str, story_id: str) -> List[Chunk]:
-        """
-        Split narrative into overlapping chunks with temporal ordering.
-        
-        Args:
-            text: Full narrative text
-            story_id: Story identifier for chunk IDs
-            
-        Returns:
-            List of Chunk objects in temporal order
-        """
+        """Split narrative into overlapping chunks."""
         logger.info("Starting narrative chunking...")
         
-        # First, try to detect chapter boundaries
+        # try to detect chapter boundaries
         chapters = self._detect_chapters(text)
         
         if chapters:
@@ -76,46 +58,18 @@ class NarrativeChunker:
         return chunks
     
     def _detect_chapters(self, text: str) -> List[Tuple[str, str]]:
-        """
-        Attempt to detect chapter boundaries in text.
-        
-        Returns:
-            List of (chapter_title, chapter_text) tuples, or empty list
-        """
-        # Common chapter patterns
+        """Try to detect chapter boundaries."""
+        # common chapter patterns
         patterns = [
-            r'\n\s*CHAPTER\s+[IVXLCDM\d]+\s*[:\-]?\s*[^\n]*\n',  # CHAPTER I, CHAPTER 1
-            r'\n\s*Chapter\s+[IVXLCDM\d]+\s*[:\-]?\s*[^\n]*\n',  # Chapter 1
-            r'\n\s*[IVXLCDM]+\.\s*[^\n]*\n',  # I. Title
-            r'\n\s*\d+\.\s*[^\n]*\n',  # 1. Title
+            r'\n\s*CHAPTER\s+[IVXLCDM\d]+\s*[:\-]?\s*[^\n]*\n',
+            r'\n\s*Chapter\s+[IVXLCDM\d]+\s*[:\-]?\s*[^\n]*\n',
+            r'\n\s*[IVXLCDM]+\.\s*[^\n]*\n',
+            r'\n\s*\d+\.\s*[^\n]*\n',
         ]
-        
-        for pattern in patterns:
-            matches = list(re.finditer(pattern, text, re.IGNORECASE))
-            if len(matches) >= 5:  # Need at least 5 chapters to be confident
-                chapters = []
-                
-                for i, match in enumerate(matches):
-                    start = match.end()
-                    end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-                    
-                    chapter_title = match.group().strip()
-                    chapter_text = text[start:end].strip()
-                    
-                    if len(chapter_text.split()) > 100:  # Minimum chapter size
-                        chapters.append((chapter_title, chapter_text))
-                
-                if chapters:
-                    return chapters
-        
-        return []
     
     def _chunk_by_chapters(self, chapters: List[Tuple[str, str]], 
                           story_id: str) -> List[Chunk]:
-        """
-        Create chunks based on chapter boundaries.
-        Splits large chapters, combines small ones.
-        """
+        """Split chapters into chunks."""
         chunks = []
         chunk_counter = 0
         char_position = 0
@@ -169,9 +123,7 @@ class NarrativeChunker:
         return chunks
     
     def _chunk_sliding_window(self, text: str, story_id: str) -> List[Chunk]:
-        """
-        Create overlapping chunks using sliding window approach.
-        """
+        """Chunk text using sliding window."""
         words = text.split()
         chunks = []
         
@@ -207,9 +159,7 @@ class NarrativeChunker:
     
     def _split_large_text(self, text: str, story_id: str, 
                          start_counter: int, start_pos: int) -> List[Chunk]:
-        """
-        Split text larger than chunk_size into overlapping sub-chunks.
-        """
+        """Split large text into sub-chunks."""
         words = text.split()
         chunks = []
         
@@ -235,7 +185,7 @@ class NarrativeChunker:
     
     def _create_chunk(self, text: str, story_id: str, 
                      order: int, start_pos: int) -> Chunk:
-        """Create a Chunk object with metadata."""
+        """Create Chunk object."""
         word_count = len(text.split())
         
         return Chunk(
@@ -248,7 +198,7 @@ class NarrativeChunker:
         )
     
     def _log_chunk_statistics(self, chunks: List[Chunk]):
-        """Log statistics about chunking results."""
+        """Log chunk statistics."""
         if not chunks:
             return
         
@@ -262,17 +212,7 @@ class NarrativeChunker:
     
     def get_temporal_context(self, chunk: Chunk, all_chunks: List[Chunk], 
                            window: int = 1) -> List[Chunk]:
-        """
-        Get temporally adjacent chunks for additional context.
-        
-        Args:
-            chunk: Target chunk
-            all_chunks: All chunks in temporal order
-            window: Number of chunks before/after to include
-            
-        Returns:
-            List of chunks including target and neighbors
-        """
+        """Get adjacent chunks for context."""
         idx = chunk.temporal_order
         start = max(0, idx - window)
         end = min(len(all_chunks), idx + window + 1)
@@ -281,10 +221,7 @@ class NarrativeChunker:
 
 
 class ChunkIndex:
-    """
-    Index for efficient chunk lookup and retrieval.
-    Maintains temporal ordering.
-    """
+    """Index for efficient chunk lookup."""
     
     def __init__(self, chunks: List[Chunk]):
         """
