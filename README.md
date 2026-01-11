@@ -1,7 +1,7 @@
 # StoryAudit: Backstory Consistency Checker
 
 **Team**: TeesMaarKhanCoders  
-**Track**: A (Systems Reasoning with NLP and Generative AI)  
+**Track**: A-Systems Reasoning with NLP and Generative AI
 **Competition**: Kharagpur Data Science Hackathon 2026
 
 ---
