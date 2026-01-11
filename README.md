@@ -596,36 +596,4 @@ For detailed technical analysis, see `REPORT.md` which includes:
 
 ---
 
-## Citation
-
-If you use this system in your research or project, please cite:
-
-```
-StoryAudit: Backstory Consistency Checker
-Team: TeesMaarKhanCoders
-Kharagpur Data Science Hackathon 2026
-Track A: Systems Reasoning with NLP and Generative AI
-```
-
----
-
-## License
-
-[MIT License](https://github.com/Chandansaha2005/StoryAudit?tab=MIT-1-ov-file#)
-
----
-
-## Contact
-
-**Team**: TeesMaarKhanCoders  
-**Author**: Chandan Saha  
-**Email**: chandansaha1945@gmail.com  
-**Repository**: [https://github.com/Chandansaha2005/StoryAudit](https://github.com/Chandansaha2005/StoryAudit)
-
----
-
-**Questions or Issues?** Please open an issue on GitHub or contact the team directly.
-
----
-
 *Built with ❤️ for KDSH 2026*
