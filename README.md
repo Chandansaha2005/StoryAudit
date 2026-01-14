@@ -1,8 +1,4 @@
-# StoryAudit: Backstory Consistency Checker
-
-**Team**: TeesMaarKhanCoders  
-**Track**: A (Systems Reasoning with NLP and Generative AI)  
-**Competition**: Kharagpur Data Science Hackathon 2026
+# 📖🧠StoryAudit: Backstory Consistency Checker
 
 ---
 
@@ -596,19 +592,6 @@ For detailed technical analysis, see `REPORT.md` which includes:
 
 ---
 
-## Citation
-
-If you use this system in your research or project, please cite:
-
-```
-StoryAudit: Backstory Consistency Checker
-Team: TeesMaarKhanCoders
-Kharagpur Data Science Hackathon 2026
-Track A: Systems Reasoning with NLP and Generative AI
-```
-
----
-
 ## License
 
 [MIT License](https://github.com/Chandansaha2005/StoryAudit?tab=MIT-1-ov-file#)
@@ -617,5 +600,3 @@ Track A: Systems Reasoning with NLP and Generative AI
 **Questions or Issues?** Please open an issue on GitHub or contact the team directly.
 
 ---
-
-*Built with ❤️ for KDSH 2026*
