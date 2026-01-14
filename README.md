@@ -594,7 +594,7 @@ For detailed technical analysis, see `REPORT.md` which includes:
 
 ## License
 
-[MIT License](https://github.com/Chandansaha2005/StoryAudit?tab=MIT-1-ov-file#)
+[MIT License](https://github.com/Chandansaha2005/StoryAudit/blob/main/LICENSE)
 
 
 **Questions or Issues?** Please open an issue on GitHub or contact the team directly.
